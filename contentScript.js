@@ -1,11 +1,12 @@
-// contentScript.js
-
 function injectScript(filePath, callback) {
   const script = document.createElement("script");
   script.src = chrome.runtime.getURL(filePath);
   script.onload = function () {
     this.remove();
     if (callback) callback();
+  };
+  script.onerror = function () {
+    console.error(`Failed to inject script: ${filePath}`);
   };
   (document.head || document.documentElement).appendChild(script);
 }

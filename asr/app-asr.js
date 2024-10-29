@@ -6,17 +6,18 @@ let recognizer_stream = null;
 let expectedSampleRate = 16000;
 
 // Initialize the ASR model
-Module.onRuntimeInitialized = async function () {
+Module.onRuntimeInitialized = function () {
   console.log("ASR Model initialized!");
 
   recognizer = createOnlineRecognizer(Module);
   console.log("Recognizer created", recognizer);
 
   // Start processing audio
-  await processAudio();
+  processAudio();
 };
 
-async function processAudio() {
+// Audio processing function
+function processAudio() {
   const mediaElement = document.querySelector("video, audio");
   if (!mediaElement) {
     console.error("No media element found on the page.");
@@ -24,105 +25,75 @@ async function processAudio() {
   }
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const sampleRate = audioCtx.sampleRate;
-  console.log("Audio context sample rate:", sampleRate);
-
-  // Load the AudioWorklet module
-  const scriptUrl = document.currentScript.src;
-  const scriptDir = scriptUrl.substring(0, scriptUrl.lastIndexOf("/") + 1);
-  const asrProcessorUrl = scriptDir + "asr-processor.js";
-
-  await audioCtx.audioWorklet.addModule(asrProcessorUrl).catch((error) => {
-    console.error("Error loading asr-processor.js:", error);
-  });
-
-  const asrNode = new AudioWorkletNode(audioCtx, "asr-processor");
-
-  asrNode.port.onmessage = function (event) {
-    const data = event.data;
-    if (data.type === "log") {
-      console.log("Processor Log:", data.message);
-    } else if (data instanceof Float32Array || Array.isArray(data)) {
-      console.log("Received audio data from AudioWorkletProcessor");
-      handleAudioSamples(data, sampleRate);
-    } else {
-      console.warn("Unknown message from processor:", data);
-    }
-  };
+  const recordSampleRate = audioCtx.sampleRate;
 
   const mediaStream = audioCtx.createMediaElementSource(mediaElement);
 
-  // Create a silent gain node to prevent audio output from asrNode
-  const silentGain = audioCtx.createGain();
-  silentGain.gain.value = 0;
-
-  // Connect the nodes properly
-  mediaStream.connect(asrNode);
-  asrNode.connect(silentGain);
-  silentGain.connect(audioCtx.destination);
+  // Connect the mediaStream directly to the destination so the user can hear the audio
   mediaStream.connect(audioCtx.destination);
 
-  // Ensure the media element is playing
-  if (mediaElement.paused) {
-    mediaElement.play().catch((error) => {
-      console.error("Failed to play media element:", error);
-    });
-  }
-}
+  // Create a processor node for transcription processing
+  const bufferSize = 4096; // Adjust as needed for performance
+  const numberOfInputChannels = 1;
+  const numberOfOutputChannels = 1;
 
-function handleAudioSamples(samples, sampleRate) {
-  console.log("Handling audio samples of length:", samples.length);
-  if (!recognizer_stream) {
-    recognizer_stream = recognizer.createStream();
-  }
-
-  // Downsample if necessary
-  const downsampledSamples = downsampleBuffer(
-    samples,
-    sampleRate,
-    expectedSampleRate
+  const processor = audioCtx.createScriptProcessor(
+    bufferSize,
+    numberOfInputChannels,
+    numberOfOutputChannels
   );
-  console.log("Downsampled samples length:", downsampledSamples.length);
 
-  try {
-    recognizer_stream.acceptWaveform(expectedSampleRate, downsampledSamples);
-  } catch (e) {
-    console.error("Error in acceptWaveform:", e);
-  }
+  // Connect the mediaStream to the processor node
+  mediaStream.connect(processor);
 
-  console.log("Accepted waveform into recognizer");
+  // To ensure the processor node processes the audio, we need to connect it to an output.
+  // Since we don't want to output this audio, we can connect it to a GainNode with zero gain.
+  const zeroGain = audioCtx.createGain();
+  zeroGain.gain.value = 0;
 
-  while (recognizer.isReady(recognizer_stream)) {
-    console.log("Recognizer is ready, decoding...");
-    recognizer.decode(recognizer_stream);
-  }
+  processor.connect(zeroGain);
+  zeroGain.connect(audioCtx.destination);
 
-  let isEndpoint = recognizer.isEndpoint(recognizer_stream);
-  let result = recognizer.getResult(recognizer_stream).text;
-  console.log("Recognizer result:", result);
+  processor.onaudioprocess = function (e) {
+    let inputBuffer = e.inputBuffer;
 
-  if (result && result.length > 0) {
-    console.log("Transcription result:", result);
-    // Send transcription to content script via window.postMessage
-    window.postMessage(
-      {
-        action: "transcriptionUpdate",
-        text: result,
-      },
-      "*"
-    );
-  }
+    // Get the input data from the input buffer
+    let samples = new Float32Array(inputBuffer.getChannelData(0));
+    samples = downsampleBuffer(samples, recordSampleRate, expectedSampleRate);
 
-  if (isEndpoint) {
-    console.log("Recognizer reached endpoint, resetting stream.");
-    recognizer.reset(recognizer_stream);
-  }
+    if (!recognizer_stream) {
+      recognizer_stream = recognizer.createStream();
+    }
+
+    recognizer_stream.acceptWaveform(expectedSampleRate, samples);
+    while (recognizer.isReady(recognizer_stream)) {
+      recognizer.decode(recognizer_stream);
+    }
+
+    let isEndpoint = recognizer.isEndpoint(recognizer_stream);
+    let result = recognizer.getResult(recognizer_stream).text;
+
+    if (result && result.length > 0) {
+      // Send transcription to content script via window.postMessage
+      window.postMessage(
+        {
+          action: "transcriptionUpdate",
+          text: result,
+        },
+        "*"
+      );
+    }
+
+    if (isEndpoint) {
+      recognizer.reset(recognizer_stream);
+    }
+  };
 }
 
 // Downsample buffer function remains unchanged
 function downsampleBuffer(buffer, sampleRate, outSampleRate) {
   if (outSampleRate === sampleRate) {
-    return new Float32Array(buffer);
+    return buffer;
   }
   const sampleRateRatio = sampleRate / outSampleRate;
   const newLength = Math.round(buffer.length / sampleRateRatio);
