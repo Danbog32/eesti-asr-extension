@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "ASR Video Transcriber",
+  "version": "1.0",
+  "description": "Transcribes audio from videos and displays captions.",
+  "permissions": ["scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["contentScript.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "asr/*",
+        "app-asr.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
