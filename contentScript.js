@@ -29,22 +29,80 @@ window.addEventListener("message", (event) => {
 // Function to update or create the transcription overlay
 function updateTranscriptionOverlay(text) {
   let overlay = document.getElementById("asr-transcription-overlay");
+
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = "asr-transcription-overlay";
-    overlay.style.position = "fixed";
-    overlay.style.bottom = "10px";
-    overlay.style.right = "10px";
-    overlay.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
-    overlay.style.color = "#fff";
-    overlay.style.padding = "10px";
-    overlay.style.borderRadius = "5px";
-    overlay.style.zIndex = "9999";
-    overlay.style.fontSize = "14px";
-    overlay.style.maxWidth = "300px";
-    overlay.style.maxHeight = "200px";
-    overlay.style.overflowY = "auto";
+
+    // Apply initial styles
+    Object.assign(overlay.style, {
+      position: "fixed",
+      bottom: "10px",
+      right: "10px",
+      backgroundColor: "rgba(0, 0, 0, 0.7)",
+      color: "#fff",
+      padding: "10px",
+      borderRadius: "5px",
+      zIndex: "9999",
+      fontSize: "14px",
+      maxWidth: "300px",
+      maxHeight: "200px",
+      overflowY: "auto",
+      cursor: "move", // Change cursor to indicate draggable
+    });
+
+    // Make the overlay draggable
+    makeElementDraggable(overlay);
+
     document.body.appendChild(overlay);
   }
+
   overlay.textContent = text;
+}
+
+// Helper function to make an element draggable
+function makeElementDraggable(elmnt) {
+  let pos1 = 0,
+    pos2 = 0,
+    pos3 = 0,
+    pos4 = 0;
+
+  // Add mousedown listener to the overlay to initiate dragging
+  elmnt.addEventListener("mousedown", dragMouseDown);
+
+  function dragMouseDown(e) {
+    e = e || window.event;
+    e.preventDefault();
+
+    // Get the initial mouse cursor position
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+
+    // Add event listeners for mousemove and mouseup to the document
+    document.addEventListener("mousemove", elementDrag);
+    document.addEventListener("mouseup", closeDragElement);
+  }
+
+  function elementDrag(e) {
+    e = e || window.event;
+    e.preventDefault();
+
+    // Calculate the new cursor position
+    pos1 = pos3 - e.clientX;
+    pos2 = pos4 - e.clientY;
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+
+    // Set the element's new position
+    elmnt.style.top = elmnt.offsetTop - pos2 + "px";
+    elmnt.style.left = elmnt.offsetLeft - pos1 + "px";
+    elmnt.style.bottom = "auto"; // Reset bottom and right to allow free movement
+    elmnt.style.right = "auto";
+  }
+
+  function closeDragElement() {
+    // Remove the event listeners when dragging is finished
+    document.removeEventListener("mousemove", elementDrag);
+    document.removeEventListener("mouseup", closeDragElement);
+  }
 }
