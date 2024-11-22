@@ -22,10 +22,10 @@ chrome.action.onClicked.addListener((tab) => {
         128: "icons/disabled_icon.svg",
       };
 
-  chrome.action.setIcon({ path: iconPath, tabId: tab.id });
+  chrome.action.setIcon({ path: iconPath });
 
   const title = isEnabled ? "Disable Transcription" : "Enable Transcription";
-  chrome.action.setTitle({ title: title, tabId: tab.id });
+  chrome.action.setTitle({ title: title });
 
   // Send a message to the content script to enable/disable transcription
   chrome.tabs.sendMessage(tab.id, { action: "toggleTranscription", isEnabled });

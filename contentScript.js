@@ -51,12 +51,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Initially start transcription
 startTranscription();
 
-// Store the caption lines
-let captionLines = [];
-
-// Timeout IDs for each line
-let captionTimeoutIds = [];
-
 // Listen for transcription updates from the page context
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
@@ -65,13 +59,54 @@ window.addEventListener("message", (event) => {
     event.data.action === "transcriptionUpdate" &&
     transcriptionEnabled
   ) {
-    const { text, isFinal } = event.data;
-    updateTranscriptionOverlay(text, isFinal);
+    updateTranscriptionOverlay(event.data.text);
   }
 });
 
+// Helper function to make an element draggable
+function makeElementDraggable(elmnt) {
+  // Existing draggable code
+  let pos1 = 0,
+    pos2 = 0,
+    pos3 = 0,
+    pos4 = 0;
+
+  elmnt.addEventListener("mousedown", dragMouseDown);
+
+  function dragMouseDown(e) {
+    e = e || window.event;
+    e.preventDefault();
+
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+
+    document.addEventListener("mousemove", elementDrag);
+    document.addEventListener("mouseup", closeDragElement);
+  }
+
+  function elementDrag(e) {
+    e = e || window.event;
+    e.preventDefault();
+
+    pos1 = pos3 - e.clientX;
+    pos2 = pos4 - e.clientY;
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+
+    elmnt.style.top = elmnt.offsetTop - pos2 + "px";
+    elmnt.style.left = elmnt.offsetLeft - pos1 + "px";
+    elmnt.style.bottom = "auto";
+    elmnt.style.right = "auto";
+  }
+
+  function closeDragElement() {
+    document.removeEventListener("mousemove", elementDrag);
+    document.removeEventListener("mouseup", closeDragElement);
+  }
+}
+
 // Function to update or create the transcription overlay
-function updateTranscriptionOverlay(text, isFinal) {
+function updateTranscriptionOverlay(text) {
   let overlay = document.getElementById("asr-transcription-overlay");
 
   if (!overlay) {
@@ -81,62 +116,72 @@ function updateTranscriptionOverlay(text, isFinal) {
     // Apply initial styles
     Object.assign(overlay.style, {
       position: "fixed",
-      bottom: "10%",
-      width: "100%",
-      textAlign: "center",
+      bottom: "15%",
+      right: "50%",
+      transform: "translateX(50%)",
+      backgroundColor: "rgba(0, 0, 0, 0.7)",
       color: "#fff",
-      fontSize: "22px",
+      padding: "10px",
+      borderRadius: "5px",
       zIndex: "9999",
-      textShadow: "2px 2px 4px #000",
-      pointerEvents: "none", // Allow clicks through the overlay
+      fontSize: "22px",
+      maxWidth: "300px",
+      maxHeight: "200px",
+      overflowY: "hidden",
+      cursor: "move", // Change cursor to indicate draggable
     });
+
+    // Make the overlay draggable
+    makeElementDraggable(overlay);
 
     document.body.appendChild(overlay);
   }
 
-  // Handle the text and lines
-  if (isFinal) {
-    // Start a new line with the final text
-    captionLines.push(text.trim());
-
-    // Limit to two lines
-    if (captionLines.length > 2) {
-      captionLines.shift(); // Remove the oldest line
-    }
-
-    // Update the overlay text
-    overlay.innerHTML = captionLines.join("<br>");
-
-    // Set a timeout to remove this line after a duration
-    const lineIndex = captionLines.length - 1;
-    const timeoutId = setTimeout(() => {
-      // Remove the line after the duration
-      captionLines.splice(lineIndex, 1);
-
-      // Update the overlay or remove it if no lines are left
-      if (captionLines.length === 0) {
-        overlay.textContent = "";
-      } else {
-        overlay.innerHTML = captionLines.join("<br>");
-      }
-    }, 3000); // Display each line for 3 seconds
-
-    // Store the timeout ID
-    captionTimeoutIds.push(timeoutId);
-
-    // If more than two timeouts exist, clear the oldest one
-    if (captionTimeoutIds.length > 2) {
-      clearTimeout(captionTimeoutIds.shift());
-    }
-  } else {
-    // Update the last line with partial text
-    if (captionLines.length === 0) {
-      captionLines.push(text.trim());
-    } else {
-      captionLines[captionLines.length - 1] = text.trim();
-    }
-
-    // Update the overlay text
-    overlay.innerHTML = captionLines.join("<br>");
+  // Initialize last displayed text if it doesn't exist
+  if (typeof window.lastDisplayedText === "undefined") {
+    window.lastDisplayedText = "";
   }
+
+  // Trim the text
+  let newText = text.trim();
+
+  // If the new text is the same as the last displayed text, do nothing
+  if (newText === window.lastDisplayedText) {
+    return;
+  }
+
+  // If the new text is shorter than the last displayed text, ASR might have reset
+  if (newText.length < window.lastDisplayedText.length) {
+    overlay.innerHTML = ""; // Clear existing content
+  }
+
+  // Update the last displayed text
+  window.lastDisplayedText = newText;
+
+  // Split the text into words
+  let words = newText.split(/\s+/);
+
+  // Decide how many words per line
+  const wordsPerLine = 5;
+
+  // Break the words into lines
+  let lines = [];
+  for (let i = 0; i < words.length; i += wordsPerLine) {
+    let line = words.slice(i, i + wordsPerLine).join(" ");
+    lines.push(line);
+  }
+
+  // Keep only the last two lines
+  if (lines.length > 2) {
+    lines = lines.slice(-2);
+  }
+
+  // Update the overlay content
+  overlay.innerHTML = ""; // Clear existing content
+
+  lines.forEach((line) => {
+    let captionElement = document.createElement("div");
+    captionElement.textContent = line;
+    overlay.appendChild(captionElement);
+  });
 }
