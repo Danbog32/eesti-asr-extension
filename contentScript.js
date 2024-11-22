@@ -1,3 +1,7 @@
+// contentScript.js
+
+let transcriptionEnabled = true; // Default state
+
 function injectScript(filePath, callback) {
   const script = document.createElement("script");
   script.src = chrome.runtime.getURL(filePath);
@@ -11,23 +15,63 @@ function injectScript(filePath, callback) {
   (document.head || document.documentElement).appendChild(script);
 }
 
-// Inject ASR scripts and app-asr.js in sequence
-injectScript("asr/sherpa-onnx-wasm-main-asr.js", function () {
-  injectScript("asr/sherpa-onnx-asr.js", function () {
-    injectScript("asr/app-asr.js");
+// Function to start transcription
+function startTranscription() {
+  // Inject ASR scripts and app-asr.js in sequence
+  injectScript("asr/sherpa-onnx-wasm-main-asr.js", function () {
+    injectScript("asr/sherpa-onnx-asr.js", function () {
+      injectScript("asr/app-asr.js");
+    });
   });
+}
+
+// Function to stop transcription
+function stopTranscription() {
+  // Remove the transcription overlay if it exists
+  let overlay = document.getElementById("asr-transcription-overlay");
+  if (overlay) {
+    overlay.remove();
+  }
+  // Send a message to the injected script to stop processing
+  window.postMessage({ action: "stopTranscription" }, "*");
+}
+
+// Listen for messages from the background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "toggleTranscription") {
+    transcriptionEnabled = request.isEnabled;
+    if (transcriptionEnabled) {
+      startTranscription();
+    } else {
+      stopTranscription();
+    }
+  }
 });
+
+// Initially start transcription
+startTranscription();
+
+// Store the caption lines
+let captionLines = [];
+
+// Timeout IDs for each line
+let captionTimeoutIds = [];
 
 // Listen for transcription updates from the page context
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
-  if (event.data && event.data.action === "transcriptionUpdate") {
-    updateTranscriptionOverlay(event.data.text);
+  if (
+    event.data &&
+    event.data.action === "transcriptionUpdate" &&
+    transcriptionEnabled
+  ) {
+    const { text, isFinal } = event.data;
+    updateTranscriptionOverlay(text, isFinal);
   }
 });
 
 // Function to update or create the transcription overlay
-function updateTranscriptionOverlay(text) {
+function updateTranscriptionOverlay(text, isFinal) {
   let overlay = document.getElementById("asr-transcription-overlay");
 
   if (!overlay) {
@@ -37,72 +81,62 @@ function updateTranscriptionOverlay(text) {
     // Apply initial styles
     Object.assign(overlay.style, {
       position: "fixed",
-      bottom: "10px",
-      right: "10px",
-      backgroundColor: "rgba(0, 0, 0, 0.7)",
+      bottom: "10%",
+      width: "100%",
+      textAlign: "center",
       color: "#fff",
-      padding: "10px",
-      borderRadius: "5px",
+      fontSize: "22px",
       zIndex: "9999",
-      fontSize: "14px",
-      maxWidth: "300px",
-      maxHeight: "200px",
-      overflowY: "auto",
-      cursor: "move", // Change cursor to indicate draggable
+      textShadow: "2px 2px 4px #000",
+      pointerEvents: "none", // Allow clicks through the overlay
     });
-
-    // Make the overlay draggable
-    makeElementDraggable(overlay);
 
     document.body.appendChild(overlay);
   }
 
-  overlay.textContent = text;
-}
+  // Handle the text and lines
+  if (isFinal) {
+    // Start a new line with the final text
+    captionLines.push(text.trim());
 
-// Helper function to make an element draggable
-function makeElementDraggable(elmnt) {
-  let pos1 = 0,
-    pos2 = 0,
-    pos3 = 0,
-    pos4 = 0;
+    // Limit to two lines
+    if (captionLines.length > 2) {
+      captionLines.shift(); // Remove the oldest line
+    }
 
-  // Add mousedown listener to the overlay to initiate dragging
-  elmnt.addEventListener("mousedown", dragMouseDown);
+    // Update the overlay text
+    overlay.innerHTML = captionLines.join("<br>");
 
-  function dragMouseDown(e) {
-    e = e || window.event;
-    e.preventDefault();
+    // Set a timeout to remove this line after a duration
+    const lineIndex = captionLines.length - 1;
+    const timeoutId = setTimeout(() => {
+      // Remove the line after the duration
+      captionLines.splice(lineIndex, 1);
 
-    // Get the initial mouse cursor position
-    pos3 = e.clientX;
-    pos4 = e.clientY;
+      // Update the overlay or remove it if no lines are left
+      if (captionLines.length === 0) {
+        overlay.textContent = "";
+      } else {
+        overlay.innerHTML = captionLines.join("<br>");
+      }
+    }, 3000); // Display each line for 3 seconds
 
-    // Add event listeners for mousemove and mouseup to the document
-    document.addEventListener("mousemove", elementDrag);
-    document.addEventListener("mouseup", closeDragElement);
-  }
+    // Store the timeout ID
+    captionTimeoutIds.push(timeoutId);
 
-  function elementDrag(e) {
-    e = e || window.event;
-    e.preventDefault();
+    // If more than two timeouts exist, clear the oldest one
+    if (captionTimeoutIds.length > 2) {
+      clearTimeout(captionTimeoutIds.shift());
+    }
+  } else {
+    // Update the last line with partial text
+    if (captionLines.length === 0) {
+      captionLines.push(text.trim());
+    } else {
+      captionLines[captionLines.length - 1] = text.trim();
+    }
 
-    // Calculate the new cursor position
-    pos1 = pos3 - e.clientX;
-    pos2 = pos4 - e.clientY;
-    pos3 = e.clientX;
-    pos4 = e.clientY;
-
-    // Set the element's new position
-    elmnt.style.top = elmnt.offsetTop - pos2 + "px";
-    elmnt.style.left = elmnt.offsetLeft - pos1 + "px";
-    elmnt.style.bottom = "auto"; // Reset bottom and right to allow free movement
-    elmnt.style.right = "auto";
-  }
-
-  function closeDragElement() {
-    // Remove the event listeners when dragging is finished
-    document.removeEventListener("mousemove", elementDrag);
-    document.removeEventListener("mouseup", closeDragElement);
+    // Update the overlay text
+    overlay.innerHTML = captionLines.join("<br>");
   }
 }

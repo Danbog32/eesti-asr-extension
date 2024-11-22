@@ -3,8 +3,11 @@
   "name": "ASR Video Transcriber",
   "version": "1.0",
   "description": "Transcribes audio from videos and displays captions.",
-  "permissions": ["scripting", "storage"],
+  "permissions": ["scripting", "storage", "activeTab"],
   "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
@@ -12,6 +15,10 @@
       "run_at": "document_start"
     }
   ],
+  "action": {
+    "default_title": "Disable Transcription",
+    "default_icon": "icons/logo.svg"
+  },
   "web_accessible_resources": [
     {
       "resources": [
@@ -20,5 +27,11 @@
       ],
       "matches": ["<all_urls>"]
     }
-  ]
+  ],
+  "icons": {
+    "16": "icons/enabled_icon.svg",
+    "32": "icons/enabled_icon.svg",
+    "48": "icons/enabled_icon.svg",
+    "128": "icons/enabled_icon.svg"
+  }
 }

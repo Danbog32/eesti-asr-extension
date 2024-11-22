@@ -16,6 +16,26 @@ Module.onRuntimeInitialized = function () {
   processAudio();
 };
 
+let processingEnabled = true; // Flag to control processing
+
+// Listen for messages from the content script
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+
+  if (event.data && event.data.action === "stopTranscription") {
+    processingEnabled = false;
+    // Clean up recognizer and stream
+    if (recognizer_stream) {
+      recognizer.deleteStream(recognizer_stream);
+      recognizer_stream = null;
+    }
+    // Optionally, stop audio processing
+    if (processor) {
+      processor.disconnect();
+    }
+  }
+});
+
 // Audio processing function
 function processAudio() {
   const mediaElement = document.querySelector("video, audio");
