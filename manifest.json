@@ -3,7 +3,7 @@
   "name": "ASR Video Transcriber",
   "version": "1.0",
   "description": "Transcribes audio from videos and displays captions.",
-  "permissions": ["scripting", "storage", "activeTab"],
+  "permissions": ["scripting", "storage", "activeTab", "tabCapture"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
