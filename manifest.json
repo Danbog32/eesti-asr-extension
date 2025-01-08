@@ -1,37 +1,35 @@
 {
-  "manifest_version": 3,
-  "name": "ASR Video Transcriber",
+  "name": "ASR Extension (Offscreen Example)",
   "version": "1.0",
-  "description": "Transcribes audio from videos and displays captions.",
-  "permissions": ["scripting", "storage", "activeTab", "tabCapture"],
-  "host_permissions": ["<all_urls>"],
+  "manifest_version": 3,
+  "permissions": [
+    "tabCapture",    
+    "offscreen",       
+    "tabs"        
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["contentScript.js"],
-      "run_at": "document_start"
+      "js": ["contentScript.js"]
     }
   ],
-  "action": {
-    "default_title": "Disable Transcription",
-    "default_icon": "icons/logo.svg"
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "web_accessible_resources": [
     {
       "resources": [
-        "asr/*",
-        "app-asr.js"
+        "offscreen.html",     
+        "asr/*.wasm",            
+        "asr/*.js"            
       ],
       "matches": ["<all_urls>"]
     }
   ],
-  "icons": {
-    "16": "icons/enabled_icon.svg",
-    "32": "icons/enabled_icon.svg",
-    "48": "icons/enabled_icon.svg",
-    "128": "icons/enabled_icon.svg"
+  "action": {
+    "default_title": "ASR Extension"
   }
 }
