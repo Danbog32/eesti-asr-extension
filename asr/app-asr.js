@@ -38,11 +38,11 @@ window.addEventListener("message", (event) => {
 
 // Audio processing function
 function processAudio() {
-  const mediaElement = document.querySelector("video, audio");
-  if (!mediaElement) {
-    console.error("No media element found on the page.");
-    return;
-  }
+  // const mediaElement = document.querySelector("video, audio");
+  // if (!mediaElement) {
+  //   console.error("No media element found on the page.");
+  //   return;
+  // }
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const recordSampleRate = audioCtx.sampleRate;

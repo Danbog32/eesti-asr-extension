@@ -1,187 +1,252 @@
 // contentScript.js
 
-let transcriptionEnabled = true; // Default state
+// We mimic the logic from content.js but adapt it to our own usage.
 
-function injectScript(filePath, callback) {
-  const script = document.createElement("script");
-  script.src = chrome.runtime.getURL(filePath);
-  script.onload = function () {
-    this.remove();
-    if (callback) callback();
-  };
-  script.onerror = function () {
-    console.error(`Failed to inject script: ${filePath}`);
-  };
-  (document.head || document.documentElement).appendChild(script);
-}
+// function injectScript(filePath, callback) {
+//   const script = document.createElement("script");
+//   script.src = chrome.runtime.getURL(filePath);
+//   script.onload = function () {
+//     this.remove();
+//     if (callback) callback();
+//   };
+//   script.onerror = function () {
+//     console.error(`Failed to inject script: ${filePath}`);
+//   };
+//   (document.head || document.documentElement).appendChild(script);
+// }
 
-// Function to start transcription
-function startTranscription() {
-  // Inject ASR scripts and app-asr.js in sequence
-  injectScript("asr/sherpa-onnx-wasm-main-asr.js", function () {
-    injectScript("asr/sherpa-onnx-asr.js", function () {
-      injectScript("asr/app-asr.js");
-    });
-  });
-}
+// // Function to start transcription
+// function startTranscription() {
+//   // Inject ASR scripts and app-asr.js in sequence
+//   injectScript("asr/sherpa-onnx-wasm-main-asr.js", function () {
+//     injectScript("asr/sherpa-onnx-asr.js", function () {
+//       injectScript("asr/app-asr.js");
+//     });
+//   });
+// }
 
-// Function to stop transcription
-function stopTranscription() {
-  // Remove the transcription overlay if it exists
-  let overlay = document.getElementById("asr-transcription-overlay");
-  if (overlay) {
-    overlay.remove();
-  }
-  // Send a message to the injected script to stop processing
-  window.postMessage({ action: "stopTranscription" }, "*");
-}
+// startTranscription();
 
-// Listen for messages from the background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "toggleTranscription") {
-    transcriptionEnabled = request.isEnabled;
-    if (transcriptionEnabled) {
-      startTranscription();
-    } else {
-      stopTranscription();
-    }
-  }
-});
 
-// Initially start transcription
-startTranscription();
 
-// Listen for transcription updates from the page context
-window.addEventListener("message", (event) => {
-  if (event.source !== window) return;
-  if (
-    event.data &&
-    event.data.action === "transcriptionUpdate" &&
-    transcriptionEnabled
-  ) {
-    updateTranscriptionOverlay(event.data.text);
-  }
-});
 
-// Helper function to make an element draggable
-function makeElementDraggable(elmnt) {
-  // Existing draggable code
-  let pos1 = 0,
-    pos2 = 0,
-    pos3 = 0,
-    pos4 = 0;
 
-  elmnt.addEventListener("mousedown", dragMouseDown);
+let transcriptionContainer = null;
+let textSpans = {}; // Will hold references to t0, t1, t2, t3
 
-  function dragMouseDown(e) {
-    e = e || window.event;
-    e.preventDefault();
-
-    pos3 = e.clientX;
-    pos4 = e.clientY;
-
-    document.addEventListener("mousemove", elementDrag);
-    document.addEventListener("mouseup", closeDragElement);
-  }
-
-  function elementDrag(e) {
-    e = e || window.event;
-    e.preventDefault();
-
-    pos1 = pos3 - e.clientX;
-    pos2 = pos4 - e.clientY;
-    pos3 = e.clientX;
-    pos4 = e.clientY;
-
-    elmnt.style.top = elmnt.offsetTop - pos2 + "px";
-    elmnt.style.left = elmnt.offsetLeft - pos1 + "px";
-    elmnt.style.bottom = "auto";
-    elmnt.style.right = "auto";
-  }
-
-  function closeDragElement() {
-    document.removeEventListener("mousemove", elementDrag);
-    document.removeEventListener("mouseup", closeDragElement);
-  }
-}
-
-// Function to update or create the transcription overlay
-function updateTranscriptionOverlay(text) {
-  let overlay = document.getElementById("asr-transcription-overlay");
-
-  if (!overlay) {
-    overlay = document.createElement("div");
-    overlay.id = "asr-transcription-overlay";
-
-    // Apply initial styles
-    Object.assign(overlay.style, {
-      position: "fixed",
-      bottom: "15%",
-      right: "50%",
-      transform: "translateX(50%)",
-      backgroundColor: "rgba(0, 0, 0, 0.7)",
-      color: "#fff",
-      padding: "10px",
-      borderRadius: "5px",
-      zIndex: "9999",
-      fontSize: "22px",
-      maxWidth: "300px",
-      maxHeight: "200px",
-      overflowY: "hidden",
-      cursor: "move", // Change cursor to indicate draggable
-    });
-
-    // Make the overlay draggable
-    makeElementDraggable(overlay);
-
-    document.body.appendChild(overlay);
-  }
-
-  // Initialize last displayed text if it doesn't exist
-  if (typeof window.lastDisplayedText === "undefined") {
-    window.lastDisplayedText = "";
-  }
-
-  // Trim the text
-  let newText = text.trim();
-
-  // If the new text is the same as the last displayed text, do nothing
-  if (newText === window.lastDisplayedText) {
+/**
+ * Create the transcription element if it doesn't exist.
+ */
+function initElement() {
+  if (document.getElementById("transcription")) {
     return;
   }
 
-  // If the new text is shorter than the last displayed text, ASR might have reset
-  if (newText.length < window.lastDisplayedText.length) {
-    overlay.innerHTML = ""; // Clear existing content
+  // Create container
+  transcriptionContainer = document.createElement("div");
+  transcriptionContainer.id = "transcription";
+  transcriptionContainer.style.cssText = `
+    padding-top: 8px;
+    font-size: 18px;
+    position: fixed; 
+    top: 85%; 
+    left: 50%; 
+    transform: translate(-50%, -50%);
+    line-height: 18px;
+    width: 400px;
+    height: 60px;
+    opacity: 0.9;
+    z-index: 999999; 
+    color: white;
+    cursor: move;
+  `;
+
+  // Create 4 spans: t0, t1, t2, t3
+  for (let i = 0; i < 4; i++) {
+    let span = document.createElement("span");
+    span.style.cssText = `
+      position: absolute;
+      background: black;
+      padding-left: 8px;
+      padding-right: 8px;
+    `;
+    span.id = "t" + i;
+
+    // Hide t3 offscreen
+    if (i === 3) {
+      span.style.top = "-1000px";
+    }
+
+    transcriptionContainer.appendChild(span);
+    textSpans["t" + i] = span;
   }
 
-  // Update the last displayed text
-  window.lastDisplayedText = newText;
+  document.body.appendChild(transcriptionContainer);
 
-  // Split the text into words
-  let words = newText.split(/\s+/);
-
-  // Decide how many words per line
-  const wordsPerLine = 5;
-
-  // Break the words into lines
-  let lines = [];
-  for (let i = 0; i < words.length; i += wordsPerLine) {
-    let line = words.slice(i, i + wordsPerLine).join(" ");
-    lines.push(line);
-  }
-
-  // Keep only the last two lines
-  if (lines.length > 2) {
-    lines = lines.slice(-2);
-  }
-
-  // Update the overlay content
-  overlay.innerHTML = ""; // Clear existing content
-
-  lines.forEach((line) => {
-    let captionElement = document.createElement("div");
-    captionElement.textContent = line;
-    overlay.appendChild(captionElement);
-  });
+  // Make the container draggable
+  makeElementDraggable(transcriptionContainer);
 }
+
+/**
+ * Helper to make an element draggable (similar to your existing approach).
+ */
+function makeElementDraggable(elem) {
+  let offsetX = 0, offsetY = 0, mouseX = 0, mouseY = 0;
+
+  const mouseDownHandler = function (e) {
+    e.preventDefault();
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+
+    document.addEventListener("mousemove", mouseMoveHandler);
+    document.addEventListener("mouseup", mouseUpHandler);
+  };
+
+  const mouseMoveHandler = function (e) {
+    e.preventDefault();
+    offsetX = e.clientX - mouseX;
+    offsetY = e.clientY - mouseY;
+
+    elem.style.top = elem.offsetTop + offsetY + "px";
+    elem.style.left = elem.offsetLeft + offsetX + "px";
+
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  };
+
+  const mouseUpHandler = function () {
+    document.removeEventListener("mousemove", mouseMoveHandler);
+    document.removeEventListener("mouseup", mouseUpHandler);
+  };
+
+  elem.addEventListener("mousedown", mouseDownHandler);
+}
+
+/**
+ * Cross-browser way to get computed style.
+ */
+function getStyle(el, styleProp) {
+  const x = document.getElementById(el);
+  if (!x) return null;
+
+  if (x.currentStyle) {
+    return x.currentStyle[styleProp];
+  } else if (window.getComputedStyle) {
+    return document.defaultView
+      .getComputedStyle(x, null)
+      .getPropertyValue(styleProp);
+  }
+  return null;
+}
+
+/**
+ * Splits the text in `elem` into lines based on line-height.
+ */
+function getLines(elem, lineHeight) {
+  const originalText = elem.innerHTML;
+  const words = originalText.split(" ");
+  const segments = [];
+
+  let currentLines = 1;
+  let segment = "";
+  let segmentLen = 0;
+  let divHeight = 0;
+
+  for (let i = 0; i < words.length; i++) {
+    segment += words[i] + " ";
+    elem.innerHTML = segment;
+    divHeight = elem.offsetHeight;
+
+    // If adding this word created a new line
+    if (divHeight / lineHeight > currentLines) {
+      // This line excludes the last word that caused the break
+      const lineSegment = segment.substring(
+        segmentLen,
+        segment.length - 1 - words[i].length - 1
+      );
+      segments.push(lineSegment);
+
+      segmentLen += lineSegment.length + 1; // +1 for space
+      currentLines++;
+    }
+  }
+
+  // Last segment
+  const lineSegment = segment.substring(segmentLen, segment.length - 1);
+  segments.push(lineSegment);
+
+  // Restore original text
+  elem.innerHTML = originalText;
+  return segments;
+}
+
+/**
+ * Update the transcription lines (t0, t1, t2) from the incoming text,
+ * similarly to content.js.
+ */
+function updateTranscription(text) {
+  initElement(); // Ensure the container/spans are present
+
+  // Put the entire text in t3 (offscreen)
+  const elemT3 = textSpans["t3"];
+  elemT3.innerHTML = text.replace(/(\r\n|\n|\r)/gm, "");
+
+  // Get line-height from t3
+  let lineHeightStyle = getStyle("t3", "line-height");
+  if (!lineHeightStyle) {
+    // Fallback if something's off
+    lineHeightStyle = "18px";
+  }
+  const lineHeight = parseInt(lineHeightStyle.replace("px", ""));
+
+  // Break text into lines
+  const lines = getLines(elemT3, lineHeight);
+
+  // Clear t3 now that we have lines
+  elemT3.innerHTML = "";
+
+  // Decide how many lines to show (e.g., 3)
+  const linesToShow = 3;
+
+  // Fill t0, t1, t2 with the last lines
+  for (let i = 0; i < linesToShow; i++) {
+    const span = textSpans["t" + i];
+    // Clear everything first
+    span.innerHTML = "";
+  }
+
+  if (lines.length <= linesToShow) {
+    // If there's fewer lines than 3
+    for (let i = 0; i < lines.length; i++) {
+      textSpans["t" + i].innerHTML = lines[i];
+    }
+  } else {
+    // Show only the last 3 lines
+    for (let i = 0; i < linesToShow; i++) {
+      textSpans["t" + i].innerHTML = lines[lines.length - linesToShow + i];
+    }
+  }
+
+  // Position t1, t2 below t0, t1
+  for (let i = 1; i < linesToShow; i++) {
+    const prevSpan = textSpans["t" + (i - 1)];
+    const currSpan = textSpans["t" + i];
+    currSpan.style.top = prevSpan.offsetTop + prevSpan.offsetHeight + "px";
+  }
+}
+
+// Example: Listen for transcription updates from the page context or your background script
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  if (event.data && event.data.action === "transcriptionUpdate") {
+    updateTranscription(event.data.text);
+  }
+});
+
+// Optionally, if you use chrome.runtime messages, you could do:
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === "ASR_RESULT") {
+    updateTranscription(request.text);
+  }
+  sendResponse({ status: "ok" });
+});

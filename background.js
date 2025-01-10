@@ -114,8 +114,6 @@ chrome.action.onClicked.addListener(async (currentTab) => {
       type: "START_RECORD",
       data: { currentTabId: currentTab.id },
     });
-  } else {
-    console.log("No Audio");
   }
 });
 
