@@ -69,9 +69,10 @@ Module.onRuntimeInitialized = function () {
 };
 
 // ------------------
-// Start recording & ASR
+// startRecord using AudioWorklet
 // ------------------
 async function startRecord(option) {
+  // 1) Capture tab audio
   const stream = await tabCapture();
   if (!stream) {
     console.warn("No active audio stream found. Closing option page...");
@@ -84,32 +85,55 @@ async function startRecord(option) {
     window.close();
   };
 
-  // In typical ScriptProcessor usage, we push short buffers into the ASR engine:
-  const context = new AudioContext();
+  // 2) Create an AudioContext
+  const context = new AudioContext({ sampleRate: 44100 }); 
+  // or default; you can also read actual .sampleRate
+
+  // 3) Load our AudioWorkletProcessor
+  await context.audioWorklet.addModule(chrome.runtime.getURL("asr/audioWorkletProcessor.js"));
+
+  // 4) Create a MediaStreamAudioSourceNode from the captured stream
   const mediaStream = context.createMediaStreamSource(stream);
-  const recorder = context.createScriptProcessor(4096, 1, 1);
 
-  const audioDataCache = [];
+  // 5) Create an AudioWorkletNode using our "asr-audio-worklet" processor
+  const audioWorkletNode = new AudioWorkletNode(context, "asr-audio-worklet", {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    channelCount: 1 // mono
+  });
 
-  recorder.onaudioprocess = async (event) => {
+  // If you want to hear the tab’s audio, connect mediaStream to context.destination:
+  mediaStream.connect(context.destination);
+
+  // If you also want the worklet to feed something to the speakers, connect it:
+  // audioWorkletNode.connect(context.destination);
+
+  // 6) Connect: mediaStream -> worklet node
+  mediaStream.connect(audioWorkletNode);
+
+  // 7) When the processor posts audio data to port, handle it in the main thread
+  audioWorkletNode.port.onmessage = async (event) => {
     if (!context || !recognizer) return;
 
-    const inputData = event.inputBuffer.getChannelData(0);
-    const output = to16kHz(inputData, context.sampleRate);
-    const audioData = to16BitPCM(output);
+    const { audioData } = event.data; 
+    // `audioData` is a Float32Array of samples for this audio frame
 
-    // In many ASR libs, we can push samples directly. 
-    // Here, we mimic what your Sherpa Onnx approach did:
+    // Downsample from context.sampleRate (likely 44100) to 16000
+    const output = to16kHz(audioData, context.sampleRate);
+    // Convert to 16-bit PCM
+    const audioData16 = to16BitPCM(output);
+
+    // If your ASR library expects Float32 in 16k sample rate:
+    const floatData = pcm16ToFloat32(audioData16);
+
+    // 8) Push waveform into the Sherpa-ONNX ASR
     if (!recognizer_stream) {
       recognizer_stream = recognizer.createStream();
     }
-    // Convert Int16 PCM to Float32 for your specific ASR usage if needed:
-    const floatData = pcm16ToFloat32(audioData);
 
-    // Push waveform into the engine
     recognizer_stream.acceptWaveform(EXPECTED_SAMPLE_RATE, floatData);
 
-    // Keep decoding as the engine is "ready"
+    // Keep decoding while data is available
     while (recognizer.isReady(recognizer_stream)) {
       recognizer.decode(recognizer_stream);
     }
@@ -118,7 +142,7 @@ async function startRecord(option) {
     let resultText = recognizer.getResult(recognizer_stream).text;
 
     if (resultText && resultText.length > 0) {
-      // Send partial or final transcription to content script
+      // 9) Send partial or final transcription to content script
       await sendMessageToTab(option.currentTabId, {
         type: "ASR_RESULT",
         text: resultText,
@@ -129,12 +153,6 @@ async function startRecord(option) {
       recognizer.reset(recognizer_stream);
     }
   };
-
-  // Connect everything
-  mediaStream.connect(recorder);
-  recorder.connect(context.destination);
-  // Optionally connect to context.destination so you also hear it 
-  mediaStream.connect(context.destination);
 }
 
 // Utility: Convert PCM16 to Float32 for Sherpa Onnx
