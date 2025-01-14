@@ -1,37 +1,49 @@
 {
-  "manifest_version": 3,
-  "name": "ASR Video Transcriber",
+  "name": "Estonian ASR - captions generator",
+  "description": "Estonian Automatic Speech Recognition",
+  "icons": {
+    "16": "icons/TalTech.png",
+    "48": "icons/TalTech.png",
+    "128": "icons/TalTech.png"
+  },
   "version": "1.0",
-  "description": "Transcribes audio from videos and displays captions.",
-  "permissions": ["scripting", "storage", "activeTab"],
-  "host_permissions": ["<all_urls>"],
+  "manifest_version": 3,
+  "permissions": [     
+    "tabs",
+    "storage",
+    "activeTab",
+    "tabCapture",
+    "scripting"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["contentScript.js"],
-      "run_at": "document_start"
+      "js": ["content.js"]
     }
   ],
-  "action": {
-    "default_title": "Disable Transcription",
-    "default_icon": "icons/logo.svg"
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "web_accessible_resources": [
     {
-      "resources": [
-        "asr/*",
-        "app-asr.js"
+      "resources": [ 
+        "asr/*.wasm",            
+        "asr/*.js",
+        "asr/*.data"         
       ],
       "matches": ["<all_urls>"]
     }
   ],
-  "icons": {
-    "16": "icons/enabled_icon.svg",
-    "32": "icons/enabled_icon.svg",
-    "48": "icons/enabled_icon.svg",
-    "128": "icons/enabled_icon.svg"
+  "options_page": "options.html",
+  "action": {
+    "default_title": "ASR Extension",
+    "default_icon": {
+      "16": "icons/TalTech.png",
+      "48": "icons/TalTech.png",
+      "128": "icons/TalTech.png"
+    }
   }
 }
