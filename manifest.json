@@ -1,5 +1,11 @@
 {
-  "name": "ASR Extension (Offscreen Example)",
+  "name": "Estonian ASR - captions generator",
+  "description": "Estonian Automatic Speech Recognition",
+  "icons": {
+    "16": "icons/TalTech.png",
+    "48": "icons/TalTech.png",
+    "128": "icons/TalTech.png"
+  },
   "version": "1.0",
   "manifest_version": 3,
   "permissions": [     
@@ -33,6 +39,11 @@
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "ASR Extension"
+    "default_title": "ASR Extension",
+    "default_icon": {
+      "16": "icons/TalTech.png",
+      "48": "icons/TalTech.png",
+      "128": "icons/TalTech.png"
+    }
   }
 }

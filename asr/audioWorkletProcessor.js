@@ -7,7 +7,7 @@
       this.inputSampleRate = options.processorOptions?.inputSampleRate || 44100;
   
       // We'll accumulate data in blocks; for example, 256 frames
-      this.bufferSize = 256;
+      this.bufferSize = 512;
       // Our "accumulator" is a single Float32Array index
       this.offset = 0;
   
