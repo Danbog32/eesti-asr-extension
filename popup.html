@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Caption Settings</title>
+    <title>Subtiitrite seaded</title>
     <style>
       body {
         font-family:
@@ -78,34 +78,42 @@
         display: flex;
         flex-direction: column;
       }
+      .popupHeader {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
     </style>
   </head>
   <body>
     <div class="popupContainer">
-      <h2>Caption Settings</h2>
+      <div class="popupHeader">
+        <img src="icons/TalTech.png" alt="TalTech_logo" width="70px" />
+        <h2>Subtiitrite seaded</h2>
+      </div>
 
       <div class="control-group">
-        <label for="textSize">Text Size:</label>
+        <label for="textSize">Teksti suurus:</label>
         <input type="range" id="textSize" min="1" max="14" value="1.8" />
       </div>
 
       <div class="control-group">
-        <label for="lineHeight">Line Height:</label>
+        <label for="lineHeight">Reavahe:</label>
         <input type="range" id="lineHeight" min="1" max="14" value="1.4" />
       </div>
 
       <div class="control-group">
-        <label for="bgColor">Background Color:</label>
+        <label for="bgColor">Taustavärv:</label>
         <input type="color" id="bgColor" value="#000000" />
       </div>
 
       <div class="control-group">
-        <label for="textColor">Text Color:</label>
+        <label for="textColor">Tekstivärv:</label>
         <input type="color" id="textColor" value="#ffffff" />
       </div>
 
-      <button id="toggleBtn">Start</button>
-      <button id="clearCaptionsBtn">Clear Captions</button>
+      <button id="toggleBtn">Alusta</button>
+      <button id="clearCaptionsBtn">Tühjenda subtiitrid</button>
     </div>
 
     <script src="popup.js"></script>

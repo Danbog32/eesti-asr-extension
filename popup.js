@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Helper: Update toggle button appearance based on state
   function updateToggleButtonAppearance(isRecording) {
-    toggleBtn.textContent = isRecording ? "Stop" : "Start";
+    toggleBtn.textContent = isRecording ? "Peata" : "Alusta";
 
     if (isRecording) {
       // Red background for Stop state
