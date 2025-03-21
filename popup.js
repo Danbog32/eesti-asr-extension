@@ -4,8 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const lineHeightInput = document.getElementById("lineHeight");
   const bgColorInput = document.getElementById("bgColor");
   const textColorInput = document.getElementById("textColor");
-  const startStopBtn = document.getElementById("startStopBtn");
-  const stopBtn = document.getElementById("stopBtn"); // New Stop button
+  const toggleBtn = document.getElementById("toggleBtn"); // Single toggle button
   const clearCaptionsBtn = document.getElementById("clearCaptionsBtn");
 
   // Local state for caption settings.
@@ -15,6 +14,19 @@ document.addEventListener("DOMContentLoaded", () => {
     backgroundColor: bgColorInput.value,
     textColor: textColorInput.value,
   };
+
+  // Helper: Update toggle button appearance based on state
+  function updateToggleButtonAppearance(isRecording) {
+    toggleBtn.textContent = isRecording ? "Stop" : "Start";
+
+    if (isRecording) {
+      // Red background for Stop state
+      toggleBtn.classList.add("recording");
+    } else {
+      // Blue background for Start state
+      toggleBtn.classList.remove("recording");
+    }
+  }
 
   // Helper: Send updated caption settings to the active tab.
   function sendCaptionUpdate() {
@@ -33,14 +45,12 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs && tabs[0]) {
         const tabId = tabs[0].id;
-        // Inject content.js (if not already injected).
         chrome.scripting.executeScript(
           {
             target: { tabId },
             files: ["content.js"],
           },
           () => {
-            // Now that content.js is injected, send the GET_CAPTION_STYLES message.
             chrome.tabs.sendMessage(
               tabId,
               { type: "GET_CAPTION_STYLES" },
@@ -97,45 +107,45 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log("Updated text color:", captionSettings.textColor);
   });
 
-  // --- Start Button Logic ---
-  // When Start button is clicked, send the start message to background.
-  startStopBtn.addEventListener("click", () => {
+  // --- Toggle Button Logic ---
+  // Update the button text based on the transcription state stored in chrome.storage.
+  chrome.storage.local.get("transcriptionState", (result) => {
+    updateToggleButtonAppearance(result.transcriptionState);
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.transcriptionState) {
+      updateToggleButtonAppearance(changes.transcriptionState.newValue);
+    }
+  });
+
+  // When the toggle button is clicked, send a toggle message to background.
+  toggleBtn.addEventListener("click", () => {
+    // Disable the button to prevent multiple clicks while processing
+    toggleBtn.disabled = true;
+
     chrome.runtime.sendMessage(
-      { type: "START_RECORD_FROM_POPUP" },
+      { type: "TOGGLE_RECORD_FROM_POPUP" },
       (response) => {
         if (chrome.runtime.lastError) {
           console.error(
-            "Error sending start message to background:",
+            "Error sending toggle message to background:",
             chrome.runtime.lastError.message
           );
         } else {
-          console.log("Start message sent to background, response:", response);
+          console.log("Toggle message sent to background, response:", response);
+          // Update button text based on response
+          if (response && response.status) {
+            updateToggleButtonAppearance(response.status === "started");
+          }
         }
+        // Re-enable the button
+        toggleBtn.disabled = false;
       }
     );
-    console.log("Start button clicked");
   });
 
-  // --- Stop Button Logic ---
-  // When Stop button is clicked, send the stop message to background.
-  stopBtn.addEventListener("click", () => {
-    chrome.runtime.sendMessage(
-      { type: "STOP_RECORD_FROM_POPUP" },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            "Error sending stop message to background:",
-            chrome.runtime.lastError.message
-          );
-        } else {
-          console.log("Stop message sent to background, response:", response);
-        }
-      }
-    );
-    console.log("Stop button clicked");
-  });
-
-  // Clear Captions button: sends clear message to the active tab.
+  // Update the Clear Captions button handler
   clearCaptionsBtn.addEventListener("click", () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs && tabs[0]) {

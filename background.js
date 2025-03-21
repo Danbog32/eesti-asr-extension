@@ -208,14 +208,42 @@ async function resetRecognizer() {
   }
 }
 
+async function toggleRecognizerTab() {
+  const transcriptionState = await getStorage("transcriptionState");
+  if (transcriptionState) {
+    // Recording is active; stop it.
+    await stopRecognizerTab();
+    return { status: "stopped" };
+  } else {
+    // Not recording; start it.
+    await startRecognizerTab();
+    return { status: "started" };
+  }
+}
+
 // Listen for messages from the popup.
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.type === "START_RECORD_FROM_POPUP") {
-    startRecognizerTab();
-    sendResponse({ status: "started" });
+  if (request.type === "TOGGLE_RECORD_FROM_POPUP") {
+    // Must return true to indicate we'll send a response asynchronously
+    toggleRecognizerTab()
+      .then((response) => {
+        sendResponse(response);
+        // Update the storage to match the current state
+        chrome.storage.local.set({
+          transcriptionState: response.status === "started",
+        });
+      })
+      .catch((error) => {
+        console.error("Error in toggleRecognizerTab:", error);
+        sendResponse({ status: "error", message: error.toString() });
+      });
+    return true; // This is important - tells Chrome we'll respond asynchronously
+  } else if (request.type === "START_RECORD_FROM_POPUP") {
+    startRecognizerTab().then(() => sendResponse({ status: "started" }));
+    return true;
   } else if (request.type === "STOP_RECORD_FROM_POPUP") {
-    stopRecognizerTab();
-    sendResponse({ status: "stopped" });
+    stopRecognizerTab().then(() => sendResponse({ status: "stopped" }));
+    return true;
   } else if (request.type === "RESET_RECOGNIZER") {
     resetRecognizer();
     sendResponse({ status: "reset" });
@@ -226,3 +254,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.action.setPopup({ popup: "popup.html" });
 });
+
+// When the extension is reloaded or starts up, validate the transcription state
+chrome.runtime.onStartup.addListener(validateTranscriptionState);
+chrome.runtime.onInstalled.addListener(validateTranscriptionState);
+
+async function validateTranscriptionState() {
+  // Check if we have an options tab stored
+  const optionTabId = await getStorage("optionTabId");
+
+  if (optionTabId) {
+    // Check if the tab actually exists
+    try {
+      const tab = await chrome.tabs.get(optionTabId);
+      // If tab exists but isn't an options page, reset state
+      if (
+        !tab.url.includes(chrome.runtime.id) ||
+        !tab.url.includes("options.html")
+      ) {
+        resetTranscriptionState();
+      }
+    } catch (error) {
+      // Tab doesn't exist anymore, reset state
+      resetTranscriptionState();
+    }
+  } else {
+    // No options tab ID stored, make sure state is reset
+    resetTranscriptionState();
+  }
+}
+
+async function resetTranscriptionState() {
+  console.log("Resetting transcription state to false");
+  await setStorage("optionTabId", null);
+  await setStorage("transcriptionState", false);
+
+  // Clear any waiting for audio states
+  tabsWaitingForAudio.clear();
+  if (chrome.tabs.onUpdated.hasListener(onTabUpdated)) {
+    chrome.tabs.onUpdated.removeListener(onTabUpdated);
+  }
+
+  // Clear any waiting badges
+  chrome.tabs.query({}, (tabs) => {
+    tabs.forEach((tab) => {
+      chrome.action.setBadgeText({ text: "", tabId: tab.id });
+    });
+  });
+}
