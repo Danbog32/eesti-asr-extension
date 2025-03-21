@@ -258,6 +258,23 @@ if (typeof window.captionScriptLoaded === "undefined") {
     });
   }
 
+  /**
+   * Clear all captions from all spans
+   */
+  function clearCaptions() {
+    // Make sure the container and spans exist
+    if (!document.getElementById("transcription")) {
+      return;
+    }
+
+    // Loop over each span in textSpans and clear its content
+    Object.values(textSpans).forEach((span) => {
+      span.innerHTML = "";
+    });
+
+    console.log("Captions cleared");
+  }
+
   // ------------------------
   // Message Listeners
   // ------------------------
@@ -286,6 +303,9 @@ if (typeof window.captionScriptLoaded === "undefined") {
         textColor: currentCaptionSettings.textColor,
       });
       return true;
+    } else if (request.type === "CLEAR_CAPTIONS") {
+      // Clear all captions
+      clearCaptions();
     }
     sendResponse({ status: "ok" });
   });

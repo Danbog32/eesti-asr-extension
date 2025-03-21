@@ -1,10 +1,11 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // Get references to UI elements
+  // Get references to UI elements.
   const textSizeInput = document.getElementById("textSize");
   const lineHeightInput = document.getElementById("lineHeight");
   const bgColorInput = document.getElementById("bgColor");
   const textColorInput = document.getElementById("textColor");
   const startStopBtn = document.getElementById("startStopBtn");
+  const stopBtn = document.getElementById("stopBtn"); // New Stop button
   const clearCaptionsBtn = document.getElementById("clearCaptionsBtn");
 
   // Local state for caption settings.
@@ -15,7 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     textColor: textColorInput.value,
   };
 
-  // Helper: Send updated caption settings to the content script in the active tab.
+  // Helper: Send updated caption settings to the active tab.
   function sendCaptionUpdate() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs && tabs[0]) {
@@ -27,148 +28,134 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Helper: Fetch the current caption styles from the active tab.
+  // Helper: Inject the content script then fetch the current caption styles.
   function fetchCurrentCaptionStyles() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs && tabs[0]) {
-        chrome.tabs.sendMessage(
-          tabs[0].id,
-          { type: "GET_CAPTION_STYLES" },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              console.error(chrome.runtime.lastError.message);
-              return;
-            }
-            if (response) {
-              // Update local state with the response.
-              captionSettings = {
-                textSize: response.textSize,
-                lineHeight: response.lineHeight,
-                backgroundColor: response.backgroundColor,
-                textColor: response.textColor,
-              };
-
-              // Update the UI controls with the current values.
-              textSizeInput.value = captionSettings.textSize;
-              lineHeightInput.value = captionSettings.lineHeight;
-              bgColorInput.value = captionSettings.backgroundColor;
-              textColorInput.value = captionSettings.textColor;
-            }
+        const tabId = tabs[0].id;
+        // Inject content.js (if not already injected).
+        chrome.scripting.executeScript(
+          {
+            target: { tabId },
+            files: ["content.js"],
+          },
+          () => {
+            // Now that content.js is injected, send the GET_CAPTION_STYLES message.
+            chrome.tabs.sendMessage(
+              tabId,
+              { type: "GET_CAPTION_STYLES" },
+              (response) => {
+                if (chrome.runtime.lastError) {
+                  console.error(
+                    "GET_CAPTION_STYLES error:",
+                    chrome.runtime.lastError.message
+                  );
+                  return;
+                }
+                if (response) {
+                  captionSettings = {
+                    textSize: response.textSize,
+                    lineHeight: response.lineHeight,
+                    backgroundColor: response.backgroundColor,
+                    textColor: response.textColor,
+                  };
+                  textSizeInput.value = captionSettings.textSize;
+                  lineHeightInput.value = captionSettings.lineHeight;
+                  bgColorInput.value = captionSettings.backgroundColor;
+                  textColorInput.value = captionSettings.textColor;
+                }
+              }
+            );
           }
         );
       }
     });
   }
 
-  // Fetch the current caption styles when the popup opens.
+  // Fetch caption styles on popup open.
   fetchCurrentCaptionStyles();
 
-  // Update caption text size when changed.
+  // Update caption styles when inputs change.
   textSizeInput.addEventListener("input", (event) => {
     captionSettings.textSize = parseFloat(event.target.value);
     sendCaptionUpdate();
-    console.log("Update text size:", captionSettings.textSize);
+    console.log("Updated text size:", captionSettings.textSize);
   });
-
-  // Update caption line height when changed.
   lineHeightInput.addEventListener("input", (event) => {
     captionSettings.lineHeight = parseFloat(event.target.value);
     sendCaptionUpdate();
-    console.log("Update line height:", captionSettings.lineHeight);
+    console.log("Updated line height:", captionSettings.lineHeight);
   });
-
-  // Update background color when changed.
   bgColorInput.addEventListener("input", (event) => {
     captionSettings.backgroundColor = event.target.value;
     sendCaptionUpdate();
-    console.log("Update background color:", captionSettings.backgroundColor);
+    console.log("Updated background color:", captionSettings.backgroundColor);
   });
-
-  // Update text color when changed.
   textColorInput.addEventListener("input", (event) => {
     captionSettings.textColor = event.target.value;
     sendCaptionUpdate();
-    console.log("Update text color:", captionSettings.textColor);
+    console.log("Updated text color:", captionSettings.textColor);
   });
 
-  // --- Start/Stop Button Logic ---
-
-  // When the popup opens, update the button text based on the current transcription state.
-  chrome.storage.local.get("transcriptionState", (result) => {
-    const isRecording = result.transcriptionState;
-    startStopBtn.textContent = isRecording ? "Stop" : "Start";
-  });
-
-  // Listen for changes to transcriptionState in storage.
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.transcriptionState) {
-      const newState = changes.transcriptionState.newValue;
-      startStopBtn.textContent = newState ? "Stop" : "Start";
-    }
-  });
-
-  // Helper: Send the toggle message to the options tab.
-  const sendToggleMessage = (optionTabId) => {
-    chrome.tabs.sendMessage(
-      optionTabId,
-      { type: "TOGGLE_TRANSCRIPTION" },
-      () => {
+  // --- Start Button Logic ---
+  // When Start button is clicked, send the start message to background.
+  startStopBtn.addEventListener("click", () => {
+    chrome.runtime.sendMessage(
+      { type: "START_RECORD_FROM_POPUP" },
+      (response) => {
         if (chrome.runtime.lastError) {
           console.error(
-            "Error sending toggle:",
+            "Error sending start message to background:",
             chrome.runtime.lastError.message
           );
         } else {
-          console.log("Toggle message sent to options tab", optionTabId);
+          console.log("Start message sent to background, response:", response);
         }
       }
     );
-  };
-
-  // When Start/Stop button is clicked, send the toggle message to the options (recording) tab.
-  startStopBtn.addEventListener("click", () => {
-    chrome.storage.local.get("optionTabId", (result) => {
-      let optionTabId = result.optionTabId;
-      if (optionTabId) {
-        // Try sending the toggle message.
-        chrome.tabs.sendMessage(
-          optionTabId,
-          { type: "TOGGLE_TRANSCRIPTION" },
-          () => {
-            if (chrome.runtime.lastError) {
-              console.error(
-                "Sending toggle failed:",
-                chrome.runtime.lastError.message
-              );
-              // If failed, ask background to reopen the options tab.
-              chrome.runtime.sendMessage(
-                { type: "OPEN_OPTIONS_TAB" },
-                (res) => {
-                  if (res && res.optionTabId) {
-                    sendToggleMessage(res.optionTabId);
-                  }
-                }
-              );
-            }
-          }
-        );
-      } else {
-        // If no option tab is stored, ask background to open it.
-        chrome.runtime.sendMessage({ type: "OPEN_OPTIONS_TAB" }, (res) => {
-          if (res && res.optionTabId) {
-            sendToggleMessage(res.optionTabId);
-          }
-        });
-      }
-    });
-    console.log("Start/Stop button clicked");
+    console.log("Start button clicked");
   });
 
-  // Clear Captions button: clears the displayed captions (sent to the active tab).
+  // --- Stop Button Logic ---
+  // When Stop button is clicked, send the stop message to background.
+  stopBtn.addEventListener("click", () => {
+    chrome.runtime.sendMessage(
+      { type: "STOP_RECORD_FROM_POPUP" },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            "Error sending stop message to background:",
+            chrome.runtime.lastError.message
+          );
+        } else {
+          console.log("Stop message sent to background, response:", response);
+        }
+      }
+    );
+    console.log("Stop button clicked");
+  });
+
+  // Clear Captions button: sends clear message to the active tab.
   clearCaptionsBtn.addEventListener("click", () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs && tabs[0]) {
+        // Send message to content script to clear visible captions
         chrome.tabs.sendMessage(tabs[0].id, { type: "CLEAR_CAPTIONS" });
+
+        // Send message to background script to reset the recognizer
+        chrome.runtime.sendMessage({ type: "RESET_RECOGNIZER" }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(
+              "Error sending reset message to background:",
+              chrome.runtime.lastError.message
+            );
+          } else {
+            console.log(
+              "Reset message sent to background, response:",
+              response
+            );
+          }
+        });
         console.log("Clear Captions button clicked");
       }
     });
