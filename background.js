@@ -83,6 +83,11 @@ function setStorage(key, value) {
 chrome.action.onClicked.addListener(async (currentTab) => {
   console.log("Current Tab", currentTab);
 
+  // open popup.html
+  chrome.action.setPopup({
+    popup: "popup.html",
+  });
+
   // Is it record only one tab at the same time?
   const optionTabId = await getStorage("optionTabId");
   if (optionTabId) {
@@ -124,5 +129,16 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   // When the current tab is closed, the option tab is also closed by the way
   if (currentTabId === tabId && optionTabId) {
     await removeTab(optionTabId);
+  }
+});
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === "OPEN_OPTIONS_TAB") {
+    openOptions().then((tab) => {
+      setStorage("optionTabId", tab.id).then(() => {
+        sendResponse({ optionTabId: tab.id });
+      });
+    });
+    return true; // Keep the message channel open for async response.
   }
 });

@@ -1,17 +1,45 @@
 // merged-options-asr.js
 
 // ------------------
+// Global variables & state
+// ------------------
+let isRecording = false;
+let _recordingContext = null;
+let _mediaStream = null;
+let _audioWorkletNode = null;
+let recognizer = null;
+let recognizer_stream = null;
+const EXPECTED_SAMPLE_RATE = 16000;
+
+// Once the WASM module is ready
+Module.onRuntimeInitialized = function () {
+  console.log("ASR Model initialized!");
+  recognizer = createOnlineRecognizer(Module);
+  console.log("Recognizer created", recognizer);
+};
+
+// ------------------
 // Utility functions
 // ------------------
 function tabCapture() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     chrome.tabCapture.capture(
       {
         audio: true,
         video: false,
       },
       (stream) => {
-        resolve(stream);
+        if (chrome.runtime.lastError || !stream) {
+          reject(
+            new Error(
+              chrome.runtime.lastError
+                ? chrome.runtime.lastError.message
+                : "No stream"
+            )
+          );
+        } else {
+          resolve(stream);
+        }
       }
     );
   });
@@ -55,115 +83,130 @@ function sendMessageToTab(tabId, data) {
 }
 
 // ------------------
-// ASR Variables
+// Recording Control Functions
 // ------------------
-let recognizer = null;
-let recognizer_stream = null;
-const EXPECTED_SAMPLE_RATE = 16000;
-
-// Once the WASM module is ready
-Module.onRuntimeInitialized = function () {
-  console.log("ASR Model initialized!");
-  recognizer = createOnlineRecognizer(Module); 
-  console.log("Recognizer created", recognizer);
-};
-
-// ------------------
-// startRecord using AudioWorklet
-// ------------------
-async function startRecord(option) {
-  const stream = await tabCapture();
-  if (!stream) {
-    console.warn("No active audio stream found. Closing option page...");
-    window.close();
+async function startRecord(option = {}) {
+  let stream;
+  try {
+    stream = await tabCapture();
+  } catch (err) {
+    console.error("Error capturing tab:", err.message);
+    // Display an error message in the options page (or notify the user) instead of closing immediately.
+    document.body.innerHTML = `<h2>Error:</h2><p>${err.message}</p><p>Please navigate to a supported page and try again.</p>`;
     return;
   }
+  if (!stream) {
+    console.warn(
+      "No active audio stream found. Please ensure you are on a supported page."
+    );
+    return;
+  }
+  _mediaStream = stream;
+  stream.oninactive = () => {
+    console.warn("Stream became inactive.");
+    // Optionally, update UI or storage state here.
+  };
 
-  stream.oninactive = () => window.close();
+  // Create a new AudioContext and load the AudioWorklet module
+  _recordingContext = new AudioContext({ sampleRate: 44100 });
+  await _recordingContext.audioWorklet.addModule(
+    chrome.runtime.getURL("asr/audioWorkletProcessor.js")
+  );
 
-  const context = new AudioContext({ sampleRate: 44100 });
+  // Create a MediaStream source and an AudioWorkletNode
+  const mediaStreamSource = _recordingContext.createMediaStreamSource(stream);
+  _audioWorkletNode = new AudioWorkletNode(
+    _recordingContext,
+    "asr-audio-worklet",
+    {
+      processorOptions: {
+        inputSampleRate: _recordingContext.sampleRate,
+      },
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+      channelCount: 1,
+    }
+  );
 
-  // 1) Load the audio worklet
-  await context.audioWorklet.addModule(chrome.runtime.getURL("asr/audioWorkletProcessor.js"));
+  // Optionally send audio to speakers
+  mediaStreamSource.connect(_recordingContext.destination);
+  // Connect the media stream to the worklet
+  mediaStreamSource.connect(_audioWorkletNode);
 
-  // 2) Create a source node from the captured stream
-  const mediaStream = context.createMediaStreamSource(stream);
-
-  // 3) Create the AudioWorkletNode
-  const audioWorkletNode = new AudioWorkletNode(context, "asr-audio-worklet", {
-    processorOptions: {
-      inputSampleRate: context.sampleRate
-    },
-    numberOfInputs: 1,
-    numberOfOutputs: 0,
-    channelCount: 1
-  });
-
-  // Optional: send audio to your speakers
-  mediaStream.connect(context.destination);
-
-  // Connect the chain: mediaStream -> worklet
-  mediaStream.connect(audioWorkletNode);
-
-  // 4) The worklet now sends final 16 kHz Float32 buffers via port messages
-  audioWorkletNode.port.onmessage = async (event) => {
+  // Process audio data from the worklet
+  _audioWorkletNode.port.onmessage = async (event) => {
     if (!recognizer) return;
-
-    const { audioData } = event.data; 
-    // `audioData` is already a Float32Array at 16 kHz
-
-    // Pass it to the ASR
+    const { audioData } = event.data;
     if (!recognizer_stream) {
       recognizer_stream = recognizer.createStream();
     }
     recognizer_stream.acceptWaveform(EXPECTED_SAMPLE_RATE, audioData);
-
-    // Decode while ready
     while (recognizer.isReady(recognizer_stream)) {
       recognizer.decode(recognizer_stream);
     }
-
     const isEndpoint = recognizer.isEndpoint(recognizer_stream);
     const resultText = recognizer.getResult(recognizer_stream).text;
-
     if (resultText && resultText.length > 0) {
-      // Send transcription to tab
+      // Send transcription to the original tab
       await sendMessageToTab(option.currentTabId, {
         type: "ASR_RESULT",
         text: resultText,
       });
     }
-
     if (isEndpoint) {
       recognizer.reset(recognizer_stream);
     }
   };
+
+  isRecording = true;
+  // Update transcription state in storage so the popup reflects the change.
+  chrome.storage.local.set({ transcriptionState: true });
+  console.log("Transcription started.");
 }
 
-
-// Utility: Convert PCM16 to Float32 for Sherpa Onnx
-function pcm16ToFloat32(dataView) {
-  const int16Array = new Int16Array(dataView.buffer);
-  const float32Array = new Float32Array(int16Array.length);
-  for (let i = 0; i < int16Array.length; i++) {
-    // 32768 = 2^15
-    float32Array[i] = int16Array[i] / 32768;
+async function stopRecord() {
+  // Stop the media stream tracks
+  if (_mediaStream) {
+    _mediaStream.getTracks().forEach((track) => track.stop());
+    _mediaStream = null;
   }
-  return float32Array;
+  // Disconnect the worklet node
+  if (_audioWorkletNode) {
+    _audioWorkletNode.disconnect();
+    _audioWorkletNode = null;
+  }
+  // Close the AudioContext
+  if (_recordingContext) {
+    await _recordingContext.close();
+    _recordingContext = null;
+  }
+  recognizer_stream = null;
+  isRecording = false;
+  // Update transcription state in storage.
+  chrome.storage.local.set({ transcriptionState: false });
+  console.log("Transcription stopped.");
 }
 
 // ------------------
-// Listen for messages (from Background)
+// Message Listener
 // ------------------
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const { type, data } = request;
   switch (type) {
     case "START_RECORD":
-      startRecord(data);
+      if (!isRecording) {
+        startRecord(data);
+      }
+      break;
+    case "TOGGLE_TRANSCRIPTION":
+      if (isRecording) {
+        stopRecord();
+      } else {
+        startRecord(data);
+      }
       break;
     default:
       break;
   }
-
   sendResponse({});
 });

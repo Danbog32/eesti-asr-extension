@@ -1,32 +1,35 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>options</title>
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body>
-
-  <!-- Put your extension's logic (options.js) last, so it can safely reference
+  <head>
+    <meta charset="UTF-8" />
+    <title>options</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <style>
+    html {
+      background-color: black;
+    }
+  </style>
+  <body>
+    <!-- Put your extension's logic (options.js) last, so it can safely reference
        the WASM module that is now loaded by sherpa-onnx-wasm-main-asr.js. -->
 
-  <!-- 1) Define Module before Emscripten script -->
-  <script src="module.js"></script>
+    <!-- 1) Define Module before Emscripten script -->
+    <script src="module.js"></script>
 
-  <!-- 2) Load Emscripten script (this fetches .data/.wasm automatically) -->
-  <script src="asr/sherpa-onnx-wasm-main-asr.js"></script>
+    <!-- 2) Load Emscripten script (this fetches .data/.wasm automatically) -->
+    <script src="asr/sherpa-onnx-wasm-main-asr.js"></script>
 
-  <!-- 3) (Optional) Additional scripts if needed. 
+    <!-- 3) (Optional) Additional scripts if needed. 
          If `sherpa-onnx-asr.js` references `Module` after it’s loaded, 
          put it below the Emscripten script.
   -->
-  <script src="asr/sherpa-onnx-asr.js"></script>
+    <script src="asr/sherpa-onnx-asr.js"></script>
 
-  <!-- 4) Your extension logic (options.js) that calls 
+    <!-- 4) Your extension logic (options.js) that calls 
          createOnlineRecognizer(Module), etc. 
   -->
-  <script src="options.js" type="module"></script>
-
-</body>
+    <script src="options.js" type="module"></script>
+  </body>
 </html>
