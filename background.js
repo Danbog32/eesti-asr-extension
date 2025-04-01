@@ -3,6 +3,14 @@ chrome.action.setPopup({ popup: "popup.html" });
 // Add a mapping to keep track of tabs we're monitoring for audio
 const tabsWaitingForAudio = new Map();
 
+// Add these variables near the top of the file
+let inactivityTimeout = null;
+// const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+const INACTIVITY_TIMEOUT_MS = 5 * 1000; // 3 minutes
+
+let isVideoPaused = false;
+let isTabHidden = false;
+
 function openOptions() {
   return new Promise((resolve) => {
     chrome.tabs.create(
@@ -158,7 +166,15 @@ async function initializeTranscription(tab) {
   });
 }
 
+// Modify stopRecognizerTab to also clear the inactivity timer
+
 async function stopRecognizerTab() {
+  // Clear any inactivity timer when stopping manually
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+    inactivityTimeout = null;
+  }
+
   // Get the current active tab
   const [currentTab] = await new Promise((resolve) =>
     chrome.tabs.query({ active: true, currentWindow: true }, resolve)
@@ -208,17 +224,110 @@ async function resetRecognizer() {
   }
 }
 
+// Update the toggleRecognizerTab function
+
 async function toggleRecognizerTab() {
   const transcriptionState = await getStorage("transcriptionState");
   if (transcriptionState) {
     // Recording is active; stop it.
     await stopRecognizerTab();
+
+    // Clear any inactivity timeout when stopping
+    if (inactivityTimeout) {
+      clearTimeout(inactivityTimeout);
+      inactivityTimeout = null;
+    }
+
     return { status: "stopped" };
   } else {
     // Not recording; start it.
     await startRecognizerTab();
+
+    // Set up inactivity monitoring
+    await setupInactivityMonitoring();
+
+    // Reset the state trackers
+    isVideoPaused = false;
+    isTabHidden = false;
+
     return { status: "started" };
   }
+}
+
+// Add this after the toggleRecognizerTab function
+async function setupInactivityMonitoring() {
+  const currentTabId = await getStorage("currentTabId");
+  if (!currentTabId) return;
+
+  // Execute script to monitor video state and visibility in the content tab
+  chrome.scripting.executeScript({
+    target: { tabId: currentTabId },
+    function: monitorVideoAndVisibility,
+  });
+}
+
+// Function that will run in the content script
+function monitorVideoAndVisibility() {
+  // Don't add duplicate listeners
+  if (window.inactivityMonitorActive) return;
+  window.inactivityMonitorActive = true;
+
+  // Monitor page visibility
+  document.addEventListener("visibilitychange", () => {
+    chrome.runtime.sendMessage({
+      type: "VISIBILITY_CHANGE",
+      isHidden: document.hidden,
+    });
+  });
+
+  // Monitor all video elements
+  function setupVideoListeners() {
+    const videos = document.querySelectorAll("video");
+    videos.forEach((video) => {
+      // Remove any existing listeners first
+      video.removeEventListener("play", reportVideoPlay);
+      video.removeEventListener("pause", reportVideoPause);
+
+      // Add fresh listeners
+      video.addEventListener("play", reportVideoPlay);
+      video.addEventListener("pause", reportVideoPause);
+
+      // Report initial state if the video exists
+      if (video.paused) {
+        reportVideoPause();
+      } else {
+        reportVideoPlay();
+      }
+    });
+  }
+
+  function reportVideoPlay() {
+    chrome.runtime.sendMessage({ type: "VIDEO_STATE_CHANGE", isPaused: false });
+  }
+
+  function reportVideoPause() {
+    chrome.runtime.sendMessage({ type: "VIDEO_STATE_CHANGE", isPaused: true });
+  }
+
+  // Set up initial listeners
+  setupVideoListeners();
+
+  // Set up MutationObserver to catch dynamically added videos
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.addedNodes && mutation.addedNodes.length) {
+        setupVideoListeners();
+      }
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Report initial visibility state
+  chrome.runtime.sendMessage({
+    type: "VISIBILITY_CHANGE",
+    isHidden: document.hidden,
+  });
 }
 
 // Listen for messages from the popup.
@@ -250,84 +359,109 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.type === "RESET_TRANSCRIPTION_STATE") {
     resetTranscriptionState();
     sendResponse({ status: "state_reset" });
+  } else if (request.type === "VISIBILITY_CHANGE") {
+    handleVisibilityChange(request.isHidden);
+    sendResponse({ status: "handled" });
+    return true;
+  } else if (request.type === "VIDEO_STATE_CHANGE") {
+    handleVideoStateChange(request.isPaused);
+    sendResponse({ status: "handled" });
+    return true;
   }
 });
 
-// When the browser action is clicked, open popup.html.
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.action.setPopup({ popup: "popup.html" });
-});
+// Add these new handler functions
+async function handleVisibilityChange(isHidden) {
+  const transcriptionState = await getStorage("transcriptionState");
+  if (!transcriptionState) return; // Not recording, nothing to do
 
-// When the extension is reloaded or starts up, validate the transcription state
-chrome.runtime.onStartup.addListener(validateTranscriptionState);
-chrome.runtime.onInstalled.addListener(validateTranscriptionState);
+  isTabHidden = isHidden;
 
-async function validateTranscriptionState() {
-  // Check if we have an options tab stored
-  const optionTabId = await getStorage("optionTabId");
-
-  if (optionTabId) {
-    // Check if the tab actually exists
-    try {
-      const tab = await chrome.tabs.get(optionTabId);
-      // If tab exists but isn't an options page, reset state
-      if (
-        !tab.url.includes(chrome.runtime.id) ||
-        !tab.url.includes("options.html")
-      ) {
-        resetTranscriptionState();
-      }
-    } catch (error) {
-      // Tab doesn't exist anymore, reset state
-      resetTranscriptionState();
-    }
+  // Update inactivity tracking
+  if (isHidden || isVideoPaused) {
+    startInactivityTimer(
+      "Tab visibility: " +
+        (isHidden ? "hidden" : "visible") +
+        ", Video: " +
+        (isVideoPaused ? "paused" : "playing")
+    );
   } else {
-    // No options tab ID stored, make sure state is reset
-    resetTranscriptionState();
+    // Tab is visible and video is playing, clear the timer
+    clearInactivityTimer();
   }
 }
+
+async function handleVideoStateChange(isPaused) {
+  const transcriptionState = await getStorage("transcriptionState");
+  if (!transcriptionState) return; // Not recording, nothing to do
+
+  isVideoPaused = isPaused;
+
+  // Update inactivity tracking
+  if (isPaused || isTabHidden) {
+    startInactivityTimer(
+      "Tab visibility: " +
+        (isTabHidden ? "hidden" : "visible") +
+        ", Video: " +
+        (isPaused ? "paused" : "playing")
+    );
+  } else {
+    // Tab is visible and video is playing, clear the timer
+    clearInactivityTimer();
+  }
+
+  // If video is paused, update badge to indicate state
+  const currentTabId = await getStorage("currentTabId");
+  if (currentTabId) {
+    if (isPaused) {
+      chrome.action.setBadgeText({ text: "⏸️", tabId: currentTabId });
+      chrome.action.setBadgeBackgroundColor({
+        color: "#FFA500",
+        tabId: currentTabId,
+      });
+    } else {
+      chrome.action.setBadgeText({ text: "", tabId: currentTabId });
+    }
+  }
+}
+
+// Add these functions to manage the inactivity timer
+
+function startInactivityTimer(reason) {
+  // Clear any existing timer first
+  clearInactivityTimer();
+
+  console.log(`Starting inactivity timer. Reason: ${reason}`);
+
+  // Create a new timer
+  inactivityTimeout = setTimeout(async () => {
+    // Stop the recognizer
+    await stopRecognizerTab();
+
+    // Reset the state
+    inactivityTimeout = null;
+  }, INACTIVITY_TIMEOUT_MS);
+}
+
+function clearInactivityTimer() {
+  if (inactivityTimeout) {
+    console.log("Clearing inactivity timer - activity detected");
+    clearTimeout(inactivityTimeout);
+    inactivityTimeout = null;
+  }
+}
+
+// Update resetTranscriptionState to clear inactivity timers
 
 async function resetTranscriptionState() {
   console.log("Resetting transcription state to false");
 
-  // Send a STOP_RECORD message to the option tab if it exists
-  // This ensures any active audio recording is properly terminated
-  const optionTabId = await getStorage("optionTabId");
-  if (optionTabId) {
-    try {
-      await sendMessageToTab(optionTabId, { type: "STOP_RECORD" });
-    } catch (error) {
-      // Tab might already be gone, which is fine
-    }
+  // Clear any inactivity timer
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+    inactivityTimeout = null;
   }
 
-  // Reset all state variables
-  await setStorage("optionTabId", null);
-  await setStorage("transcriptionState", false);
-
-  // Clear any waiting for audio states
-  tabsWaitingForAudio.clear();
-  if (chrome.tabs.onUpdated.hasListener(onTabUpdated)) {
-    chrome.tabs.onUpdated.removeListener(onTabUpdated);
-  }
-
-  // Clear any waiting badges
-  chrome.tabs.query({}, (tabs) => {
-    tabs.forEach((tab) => {
-      chrome.action.setBadgeText({ text: "", tabId: tab.id });
-    });
-  });
+  // Rest of your existing resetTranscriptionState code...
+  // ...
 }
-
-// Listen for tab removals to detect when the options tab is closed manually
-chrome.tabs.onRemoved.addListener(async (tabId) => {
-  // Check if this was our options tab
-  const optionTabId = await getStorage("optionTabId");
-
-  if (optionTabId === tabId) {
-    console.log(
-      "Options tab was closed manually, resetting transcription state"
-    );
-    await resetTranscriptionState();
-  }
-});
