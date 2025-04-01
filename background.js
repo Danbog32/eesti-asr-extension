@@ -5,8 +5,7 @@ const tabsWaitingForAudio = new Map();
 
 // Add these variables near the top of the file
 let inactivityTimeout = null;
-// const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
-const INACTIVITY_TIMEOUT_MS = 5 * 1000; // 3 minutes
+const INACTIVITY_TIMEOUT_MS = 1 * 60 * 1000; // 1 minute
 
 let isVideoPaused = false;
 let isTabHidden = false;
