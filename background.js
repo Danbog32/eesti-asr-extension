@@ -247,6 +247,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.type === "RESET_RECOGNIZER") {
     resetRecognizer();
     sendResponse({ status: "reset" });
+  } else if (request.type === "RESET_TRANSCRIPTION_STATE") {
+    resetTranscriptionState();
+    sendResponse({ status: "state_reset" });
   }
 });
 
@@ -286,6 +289,19 @@ async function validateTranscriptionState() {
 
 async function resetTranscriptionState() {
   console.log("Resetting transcription state to false");
+
+  // Send a STOP_RECORD message to the option tab if it exists
+  // This ensures any active audio recording is properly terminated
+  const optionTabId = await getStorage("optionTabId");
+  if (optionTabId) {
+    try {
+      await sendMessageToTab(optionTabId, { type: "STOP_RECORD" });
+    } catch (error) {
+      // Tab might already be gone, which is fine
+    }
+  }
+
+  // Reset all state variables
   await setStorage("optionTabId", null);
   await setStorage("transcriptionState", false);
 
@@ -302,3 +318,16 @@ async function resetTranscriptionState() {
     });
   });
 }
+
+// Listen for tab removals to detect when the options tab is closed manually
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  // Check if this was our options tab
+  const optionTabId = await getStorage("optionTabId");
+
+  if (optionTabId === tabId) {
+    console.log(
+      "Options tab was closed manually, resetting transcription state"
+    );
+    await resetTranscriptionState();
+  }
+});

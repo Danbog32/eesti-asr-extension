@@ -170,6 +170,18 @@ if (typeof window.captionScriptLoaded === "undefined") {
   function updateTranscription(text) {
     initElement(); // Ensure the container/spans are present
 
+    // Make sure container is visible when receiving new text
+    const container = document.getElementById("transcription");
+    if (container) {
+      container.style.display = "block";
+
+      // Reset any styling added during clearCaptions
+      Object.values(textSpans).forEach((span) => {
+        span.style.fontStyle = "normal";
+        span.style.opacity = "1";
+      });
+    }
+
     // Put the entire text in t3 (offscreen)
     const elemT3 = textSpans["t3"];
     elemT3.innerHTML = text.replace(/(\r\n|\n|\r)/gm, "");
@@ -259,18 +271,31 @@ if (typeof window.captionScriptLoaded === "undefined") {
   }
 
   /**
-   * Clear all captions from all spans
+   * Clear all captions from all spans and toggle container visibility
    */
   function clearCaptions() {
-    // Make sure the container and spans exist
-    if (!document.getElementById("transcription")) {
+    // Make sure the container exists
+    const container = document.getElementById("transcription");
+    if (!container) {
       return;
     }
 
-    // Loop over each span in textSpans and clear its content
+    // Clear text content in all spans
     Object.values(textSpans).forEach((span) => {
       span.innerHTML = "";
     });
+
+    // Add a temporary visual indicator that shows briefly before hiding
+    const placeholderSpan = textSpans["t0"];
+    placeholderSpan.innerHTML = "Subtiitrid tühjendatud";
+    placeholderSpan.style.fontStyle = "italic";
+    placeholderSpan.style.opacity = "0.7";
+
+    // After brief delay, hide the container completely
+    setTimeout(() => {
+      container.style.display = "none";
+      console.log("Caption container hidden after clearing");
+    }, 1000);
 
     console.log("Captions cleared");
   }

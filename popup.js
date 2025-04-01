@@ -1,4 +1,35 @@
 document.addEventListener("DOMContentLoaded", () => {
+  // Add this function at the beginning of your DOMContentLoaded event handler
+
+  // Verify the actual transcription state when popup opens
+  async function verifyTranscriptionState() {
+    // Get the current transcription state and options tab ID
+    chrome.storage.local.get(
+      ["transcriptionState", "optionTabId"],
+      async (result) => {
+        const { transcriptionState, optionTabId } = result;
+
+        // If state shows recording but no options tab exists, reset the state
+        if (transcriptionState && optionTabId) {
+          try {
+            // Check if the tab actually exists
+            await chrome.tabs.get(optionTabId);
+            // If we get here, the tab exists, so state is valid
+          } catch (error) {
+            // Tab doesn't exist, so reset state through background
+            console.log(
+              "Options tab doesn't exist but state is recording; resetting"
+            );
+            chrome.runtime.sendMessage({ type: "RESET_TRANSCRIPTION_STATE" });
+          }
+        }
+      }
+    );
+  }
+
+  // Call this at the beginning of your popup.js DOMContentLoaded handler
+  verifyTranscriptionState();
+
   // Get references to UI elements.
   const textSizeInput = document.getElementById("textSize");
   const lineHeightInput = document.getElementById("lineHeight");
