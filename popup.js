@@ -33,10 +33,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // Get references to UI elements.
   const textSizeInput = document.getElementById("textSize");
   const lineHeightInput = document.getElementById("lineHeight");
+  const textSizeValue = document.getElementById("textSizeValue");
+  const lineHeightValue = document.getElementById("lineHeightValue");
   const bgColorInput = document.getElementById("bgColor");
   const textColorInput = document.getElementById("textColor");
   const toggleBtn = document.getElementById("toggleBtn"); // Single toggle button
   const clearCaptionsBtn = document.getElementById("clearCaptionsBtn");
+
+  // Update the display value when sliders change
+  textSizeInput.addEventListener("input", () => {
+    textSizeValue.textContent = textSizeInput.value;
+  });
+
+  lineHeightInput.addEventListener("input", () => {
+    lineHeightValue.textContent = lineHeightInput.value;
+  });
 
   // Local state for caption settings.
   let captionSettings = {
@@ -48,7 +59,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Helper: Update toggle button appearance based on state
   function updateToggleButtonAppearance(isRecording) {
-    toggleBtn.textContent = isRecording ? "Peata" : "Alusta";
+    const buttonText = toggleBtn.querySelector(".button-text");
+    buttonText.textContent = isRecording ? "Peata" : "Alusta";
 
     if (isRecording) {
       // Red background for Stop state
@@ -102,6 +114,8 @@ document.addEventListener("DOMContentLoaded", () => {
                   };
                   textSizeInput.value = captionSettings.textSize;
                   lineHeightInput.value = captionSettings.lineHeight;
+                  textSizeValue.textContent = captionSettings.textSize;
+                  lineHeightValue.textContent = captionSettings.lineHeight;
                   bgColorInput.value = captionSettings.backgroundColor;
                   textColorInput.value = captionSettings.textColor;
                 }

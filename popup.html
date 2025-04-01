@@ -2,118 +2,399 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Subtiitrite seaded</title>
+    <title>Estonian ASR</title>
     <style>
+      :root {
+        --primary: #2563eb;
+        --primary-hover: #1d4ed8;
+        --danger: #dc2626;
+        --danger-hover: #b91c1c;
+        --neutral: #4b5563;
+        --neutral-hover: #374151;
+        --background: #ffffff;
+        --surface: #f9fafb;
+        --border: #e5e7eb;
+        --text: #1f2937;
+        --text-secondary: #6b7280;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
       body {
         font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-          Arial, sans-serif;
-        padding: 16px;
-        margin: 0;
-        width: 250px;
-        color: #333;
-      }
-      h2 {
-        font-size: 18px;
-        margin-top: 0;
-        margin-bottom: 16px;
-        text-align: center;
-      }
-      .control-group {
-        margin-bottom: 14px;
-        display: flex;
-        flex-direction: column;
-      }
-      label {
-        margin-bottom: 4px;
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        padding: 12px;
+        width: 280px;
+        color: var(--text);
+        background-color: var(--background);
         font-size: 14px;
+        line-height: 1.4;
       }
+
+      .card {
+        border-radius: 8px;
+        background-color: var(--surface);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        padding: 12px;
+        margin-bottom: 12px;
+      }
+
+      .popupHeader {
+        display: flex;
+        align-items: center;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .logo {
+        width: 36px;
+        height: 36px;
+        object-fit: contain;
+      }
+
+      h2 {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text);
+        margin: 0;
+      }
+
+      .control-group {
+        margin-bottom: 12px;
+      }
+
+      label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 6px;
+        font-weight: 500;
+        font-size: 13px;
+      }
+
+      .range-value {
+        color: var(--text-secondary);
+        font-weight: normal;
+      }
+
       input[type="range"] {
         width: 100%;
-        margin: 6px 0;
+        height: 5px;
+        border-radius: 5px;
+        background: var(--border);
+        outline: none;
+        -webkit-appearance: none;
       }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--primary);
+        cursor: pointer;
+      }
+
+      .color-inputs {
+        display: flex;
+        gap: 10px;
+      }
+
+      .color-group {
+        flex: 1;
+      }
+
       input[type="color"] {
         width: 100%;
         height: 30px;
         padding: 0;
-        border: 1px solid #ccc;
+        border: 1px solid var(--border);
         border-radius: 4px;
+        cursor: pointer;
       }
+
+      .button-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
       button {
         width: 100%;
-        padding: 8px;
-        margin-bottom: 8px;
+        padding: 10px;
         border: none;
-        border-radius: 4px;
-        font-size: 16px;
-        font-weight: bold;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
         cursor: pointer;
-        transition: background-color 0.3s ease;
-      }
-      /* Toggle button - Start state (blue) */
-      #toggleBtn {
-        background-color: #2563eb; /* Tailwind blue-600 */
-        color: #ffffff;
-      }
-      #toggleBtn:hover {
-        background-color: #1d4ed8; /* Tailwind blue-700 */
-      }
-      /* Toggle button - Stop state (red) */
-      #toggleBtn.recording {
-        background-color: #dc2626; /* Tailwind red-600 */
-        color: #ffffff;
-      }
-      #toggleBtn.recording:hover {
-        background-color: #b91c1c; /* Tailwind red-700 */
-      }
-      /* Clear Captions button styling */
-      #clearCaptionsBtn {
-        background-color: #4b5563; /* Tailwind gray-600 */
-        color: #ffffff;
-      }
-      #clearCaptionsBtn:hover {
-        background-color: #374151; /* Tailwind gray-700 */
-      }
-      .popupContainer {
+        transition: all 0.2s ease;
         display: flex;
-        flex-direction: column;
-      }
-      .popupHeader {
-        display: flex;
-        flex-direction: column;
         align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+
+      #toggleBtn {
+        background-color: var(--primary);
+        color: white;
+      }
+
+      #toggleBtn:hover {
+        background-color: var(--primary-hover);
+      }
+
+      #toggleBtn.recording {
+        background-color: var(--danger);
+      }
+
+      #toggleBtn.recording:hover {
+        background-color: var(--danger-hover);
+      }
+
+      #clearCaptionsBtn {
+        background-color: var(--neutral);
+        color: white;
+      }
+
+      #clearCaptionsBtn:hover {
+        background-color: var(--neutral-hover);
+      }
+
+      /* Toggle switch for future use */
+      .switch-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+      }
+
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--border);
+        transition: 0.3s;
+        border-radius: 20px;
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 2px;
+        bottom: 2px;
+        background-color: white;
+        transition: 0.3s;
+        border-radius: 50%;
+      }
+
+      input:checked + .slider {
+        background-color: var(--primary);
+      }
+
+      input:checked + .slider:before {
+        transform: translateX(16px);
+      }
+
+      /* Icons */
+      .icon {
+        width: 16px;
+        height: 16px;
+      }
+
+      /* Add animation for the recording state */
+      @keyframes pulse {
+        0% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.7;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+
+      #toggleBtn.recording .recording-icon {
+        animation: pulse 2s infinite;
+        display: inline-flex;
+      }
+
+      #toggleBtn .recording-icon {
+        display: none;
+      }
+
+      #toggleBtn.recording .start-icon {
+        display: none;
+      }
+
+      #toggleBtn .start-icon {
+        display: inline-flex;
+      }
+
+      /* SVG icon containers */
+      .button-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
     </style>
   </head>
   <body>
     <div class="popupContainer">
       <div class="popupHeader">
-        <img src="icons/TalTech.png" alt="TalTech_logo" width="70px" />
-        <h2>Subtiitrite seaded</h2>
+        <div class="brand">
+          <img src="icons/TalTech.png" alt="TalTech" class="logo" />
+          <h2>Estonian ASR</h2>
+        </div>
       </div>
 
-      <div class="control-group">
-        <label for="textSize">Teksti suurus:</label>
-        <input type="range" id="textSize" min="1" max="14" value="1.8" />
+      <div class="card">
+        <div class="control-group">
+          <label for="textSize">
+            Teksti suurus
+            <span class="range-value" id="textSizeValue">1.8</span>
+          </label>
+          <input
+            type="range"
+            id="textSize"
+            min="1"
+            max="10"
+            step="0.1"
+            value="1.8"
+          />
+        </div>
+
+        <div class="control-group">
+          <label for="lineHeight">
+            Reavahe
+            <span class="range-value" id="lineHeightValue">1.4</span>
+          </label>
+          <input
+            type="range"
+            id="lineHeight"
+            min="1"
+            max="14"
+            step="0.1"
+            value="1.4"
+          />
+        </div>
+
+        <div class="color-inputs">
+          <div class="color-group">
+            <label for="bgColor">Taustavärv</label>
+            <input type="color" id="bgColor" value="#000000" />
+          </div>
+
+          <div class="color-group">
+            <label for="textColor">Tekstivärv</label>
+            <input type="color" id="textColor" value="#ffffff" />
+          </div>
+        </div>
       </div>
 
-      <div class="control-group">
-        <label for="lineHeight">Reavahe:</label>
-        <input type="range" id="lineHeight" min="1" max="14" value="1.4" />
-      </div>
+      <div class="button-group">
+        <button id="toggleBtn">
+          <!-- Start icon (improved caption/play icon) -->
+          <span class="button-icon start-icon">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <!-- Play button within a rounded rectangle -->
+              <rect
+                x="3"
+                y="4"
+                width="18"
+                height="16"
+                rx="3"
+                stroke="currentColor"
+                stroke-width="2"
+              />
+              <!-- Play triangle -->
+              <path
+                d="M15 12L10 15.5V8.5L15 12Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="1"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
 
-      <div class="control-group">
-        <label for="bgColor">Taustavärv:</label>
-        <input type="color" id="bgColor" value="#000000" />
-      </div>
+          <!-- Recording icon (better-looking pause/stop with animation) -->
+          <span class="button-icon recording-icon">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <!-- Circular record indicator with animation -->
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="2"
+              />
+              <circle cx="12" cy="12" r="5" fill="currentColor" />
+            </svg>
+          </span>
+          <span class="button-text">Alusta</span>
+        </button>
 
-      <div class="control-group">
-        <label for="textColor">Tekstivärv:</label>
-        <input type="color" id="textColor" value="#ffffff" />
+        <button id="clearCaptionsBtn">
+          <svg
+            class="icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M19 7L18.1327 19.1425C18.0579 20.1891 17.187 21 16.1378 21H7.86224C6.81296 21 5.94208 20.1891 5.86732 19.1425L5 7M10 11V17M14 11V17M15 7V4C15 3.44772 14.5523 3 14 3H10C9.44772 3 9 3.44772 9 4V7M4 7H20"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          Tühjenda subtiitrid
+        </button>
       </div>
-
-      <button id="toggleBtn">Alusta</button>
-      <button id="clearCaptionsBtn">Tühjenda subtiitrid</button>
     </div>
 
     <script src="popup.js"></script>
