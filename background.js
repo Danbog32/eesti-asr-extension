@@ -3,12 +3,12 @@ chrome.action.setPopup({ popup: "popup.html" });
 // Add a mapping to keep track of tabs we're monitoring for audio
 const tabsWaitingForAudio = new Map();
 
-// Add these variables near the top of the file
+// Add these variables near the top of the file with more conservative timeout
 let inactivityTimeout = null;
-const INACTIVITY_TIMEOUT_MS = 1 * 60 * 1000; // 1 minute
+const INACTIVITY_TIMEOUT_MS = 1 * 60 * 1000; // 1 minutes
 
-let isVideoPaused = false;
-let isTabHidden = false;
+// Simplified state tracking
+let isInactive = false;
 
 function openOptions() {
   return new Promise((resolve) => {
@@ -163,16 +163,14 @@ async function initializeTranscription(tab) {
     type: "START_RECORD",
     data: { currentTabId: tab.id },
   });
-}
 
-// Modify stopRecognizerTab to also clear the inactivity timer
+  // Only set up inactivity monitoring AFTER transcription is initialized
+  await setupInactivityMonitoring(tab.id);
+}
 
 async function stopRecognizerTab() {
   // Clear any inactivity timer when stopping manually
-  if (inactivityTimeout) {
-    clearTimeout(inactivityTimeout);
-    inactivityTimeout = null;
-  }
+  clearInactivityTimer();
 
   // Get the current active tab
   const [currentTab] = await new Promise((resolve) =>
@@ -188,6 +186,21 @@ async function stopRecognizerTab() {
     if (tabsWaitingForAudio.size === 0) {
       chrome.tabs.onUpdated.removeListener(onTabUpdated);
     }
+  }
+
+  // Clean up inactivity monitoring in the content tab
+  try {
+    const currentTabId = await getStorage("currentTabId");
+    if (currentTabId) {
+      await chrome.scripting
+        .executeScript({
+          target: { tabId: currentTabId },
+          function: cleanupMonitoring,
+        })
+        .catch((err) => console.log("Content script cleanup error:", err));
+    }
+  } catch (error) {
+    console.log("Error during monitoring cleanup:", error);
   }
 
   // Existing code to stop recording...
@@ -211,6 +224,9 @@ async function stopRecognizerTab() {
   } else {
     console.error("No option tab found to stop recording.");
   }
+
+  // Reset state
+  isInactive = false;
 }
 
 async function resetRecognizer() {
@@ -223,120 +239,131 @@ async function resetRecognizer() {
   }
 }
 
-// Update the toggleRecognizerTab function
-
 async function toggleRecognizerTab() {
   const transcriptionState = await getStorage("transcriptionState");
   if (transcriptionState) {
     // Recording is active; stop it.
     await stopRecognizerTab();
-
-    // Clear any inactivity timeout when stopping
-    if (inactivityTimeout) {
-      clearTimeout(inactivityTimeout);
-      inactivityTimeout = null;
-    }
-
     return { status: "stopped" };
   } else {
     // Not recording; start it.
     await startRecognizerTab();
-
-    // Set up inactivity monitoring
-    await setupInactivityMonitoring();
-
-    // Reset the state trackers
-    isVideoPaused = false;
-    isTabHidden = false;
-
     return { status: "started" };
   }
 }
 
-// Add this after the toggleRecognizerTab function
-async function setupInactivityMonitoring() {
-  const currentTabId = await getStorage("currentTabId");
-  if (!currentTabId) return;
+// Simplified, more efficient inactivity monitoring setup
+async function setupInactivityMonitoring(tabId) {
+  if (!tabId) {
+    tabId = await getStorage("currentTabId");
+    if (!tabId) return;
+  }
 
-  // Execute script to monitor video state and visibility in the content tab
-  chrome.scripting.executeScript({
-    target: { tabId: currentTabId },
-    function: monitorVideoAndVisibility,
-  });
+  try {
+    // Execute lightweight monitoring script in the content tab
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      function: setupLightweightMonitoring,
+    });
+  } catch (error) {
+    console.error("Error setting up inactivity monitoring:", error);
+  }
 }
 
-// Function that will run in the content script
-function monitorVideoAndVisibility() {
-  // Don't add duplicate listeners
-  if (window.inactivityMonitorActive) return;
-  window.inactivityMonitorActive = true;
+// Function that will run in the content script - simplified version with fixed cleanup
+function setupLightweightMonitoring() {
+  // Clean up existing listeners if they exist
+  if (window.asr_cleanup) {
+    window.asr_cleanup();
+  }
 
-  // Monitor page visibility
-  document.addEventListener("visibilitychange", () => {
-    chrome.runtime.sendMessage({
-      type: "VISIBILITY_CHANGE",
-      isHidden: document.hidden,
-    });
-  });
-
-  // Monitor all video elements
-  function setupVideoListeners() {
+  // Simple function to check if any video is playing
+  function hasActiveVideo() {
     const videos = document.querySelectorAll("video");
-    videos.forEach((video) => {
-      // Remove any existing listeners first
-      video.removeEventListener("play", reportVideoPlay);
-      video.removeEventListener("pause", reportVideoPause);
-
-      // Add fresh listeners
-      video.addEventListener("play", reportVideoPlay);
-      video.addEventListener("pause", reportVideoPause);
-
-      // Report initial state if the video exists
-      if (video.paused) {
-        reportVideoPause();
-      } else {
-        reportVideoPlay();
+    for (const video of videos) {
+      if (!video.paused && video.currentTime > 0) {
+        return true;
       }
+    }
+    return false;
+  }
+
+  // Function to report activity status
+  function reportVisibilityChange() {
+    chrome.runtime.sendMessage({
+      type: "ACTIVITY_UPDATE",
+      isActive: !document.hidden && hasActiveVideo(),
     });
   }
 
-  function reportVideoPlay() {
-    chrome.runtime.sendMessage({ type: "VIDEO_STATE_CHANGE", isPaused: false });
+  // Function to check and report activity
+  function checkAndReportActivity() {
+    const isActive = !document.hidden && hasActiveVideo();
+    chrome.runtime.sendMessage({
+      type: "ACTIVITY_UPDATE",
+      isActive: isActive,
+    });
   }
 
-  function reportVideoPause() {
-    chrome.runtime.sendMessage({ type: "VIDEO_STATE_CHANGE", isPaused: true });
-  }
+  // Set up a throttled visibilitychange event listener using a stored reference
+  let visibilityTimer;
+  const visibilityHandler = () => {
+    clearTimeout(visibilityTimer);
+    visibilityTimer = setTimeout(reportVisibilityChange, 500);
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
 
-  // Set up initial listeners
-  setupVideoListeners();
-
-  // Set up MutationObserver to catch dynamically added videos
+  // Use a single MutationObserver for performance
   const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.addedNodes && mutation.addedNodes.length) {
-        setupVideoListeners();
-      }
+    // Throttle video activity checks to every 2 seconds at most
+    if (!window.videoCheckTimer) {
+      window.videoCheckTimer = setTimeout(() => {
+        checkAndReportActivity();
+        window.videoCheckTimer = null;
+      }, 2000);
     }
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  // Report initial visibility state
-  chrome.runtime.sendMessage({
-    type: "VISIBILITY_CHANGE",
-    isHidden: document.hidden,
+  // Observe only changes that might affect video elements
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: false,
+    characterData: false,
   });
+
+  // Set up periodic activity polling every 10 seconds
+  const activityInterval = setInterval(checkAndReportActivity, 10000);
+
+  // Initial activity check
+  setTimeout(checkAndReportActivity, 1000);
+
+  // Define cleanup function to remove all listeners and timers
+  window.asr_cleanup = function () {
+    observer.disconnect();
+    clearInterval(activityInterval);
+    document.removeEventListener("visibilitychange", visibilityHandler);
+    clearTimeout(visibilityTimer);
+    if (window.videoCheckTimer) {
+      clearTimeout(window.videoCheckTimer);
+    }
+    delete window.asr_cleanup;
+  };
 }
 
-// Listen for messages from the popup.
+// Function to clean up monitoring
+function cleanupMonitoring() {
+  if (window.asr_cleanup) {
+    window.asr_cleanup();
+  }
+}
+
+// Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "TOGGLE_RECORD_FROM_POPUP") {
-    // Must return true to indicate we'll send a response asynchronously
     toggleRecognizerTab()
       .then((response) => {
         sendResponse(response);
-        // Update the storage to match the current state
         chrome.storage.local.set({
           transcriptionState: response.status === "started",
         });
@@ -345,7 +372,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.error("Error in toggleRecognizerTab:", error);
         sendResponse({ status: "error", message: error.toString() });
       });
-    return true; // This is important - tells Chrome we'll respond asynchronously
+    return true;
   } else if (request.type === "START_RECORD_FROM_POPUP") {
     startRecognizerTab().then(() => sendResponse({ status: "started" }));
     return true;
@@ -355,90 +382,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.type === "RESET_RECOGNIZER") {
     resetRecognizer();
     sendResponse({ status: "reset" });
+    return false;
   } else if (request.type === "RESET_TRANSCRIPTION_STATE") {
     resetTranscriptionState();
     sendResponse({ status: "state_reset" });
-  } else if (request.type === "VISIBILITY_CHANGE") {
-    handleVisibilityChange(request.isHidden);
-    sendResponse({ status: "handled" });
-    return true;
-  } else if (request.type === "VIDEO_STATE_CHANGE") {
-    handleVideoStateChange(request.isPaused);
-    sendResponse({ status: "handled" });
-    return true;
+    return false;
+  } else if (request.type === "ACTIVITY_UPDATE") {
+    // Simplified activity handler
+    handleActivityUpdate(request.isActive);
+    sendResponse({ status: "activity_updated" });
+    return false;
   }
 });
 
-// Add these new handler functions
-async function handleVisibilityChange(isHidden) {
-  const transcriptionState = await getStorage("transcriptionState");
-  if (!transcriptionState) return; // Not recording, nothing to do
+// Simplified activity handler
+function handleActivityUpdate(isActive) {
+  if (isInactive === !isActive) return; // No state change
 
-  isTabHidden = isHidden;
+  isInactive = !isActive;
 
-  // Update inactivity tracking
-  if (isHidden || isVideoPaused) {
-    startInactivityTimer(
-      "Tab visibility: " +
-        (isHidden ? "hidden" : "visible") +
-        ", Video: " +
-        (isVideoPaused ? "paused" : "playing")
-    );
+  if (isInactive) {
+    // Start inactivity timer if we've detected inactivity
+    startInactivityTimer("Media inactive or tab hidden");
   } else {
-    // Tab is visible and video is playing, clear the timer
+    // Clear timer on activity
     clearInactivityTimer();
   }
 }
 
-async function handleVideoStateChange(isPaused) {
-  const transcriptionState = await getStorage("transcriptionState");
-  if (!transcriptionState) return; // Not recording, nothing to do
-
-  isVideoPaused = isPaused;
-
-  // Update inactivity tracking
-  if (isPaused || isTabHidden) {
-    startInactivityTimer(
-      "Tab visibility: " +
-        (isTabHidden ? "hidden" : "visible") +
-        ", Video: " +
-        (isPaused ? "paused" : "playing")
-    );
-  } else {
-    // Tab is visible and video is playing, clear the timer
-    clearInactivityTimer();
-  }
-
-  // If video is paused, update badge to indicate state
-  const currentTabId = await getStorage("currentTabId");
-  if (currentTabId) {
-    if (isPaused) {
-      chrome.action.setBadgeText({ text: "⏸️", tabId: currentTabId });
-      chrome.action.setBadgeBackgroundColor({
-        color: "#FFA500",
-        tabId: currentTabId,
-      });
-    } else {
-      chrome.action.setBadgeText({ text: "", tabId: currentTabId });
-    }
-  }
-}
-
-// Add these functions to manage the inactivity timer
-
+// Simplified timer management
 function startInactivityTimer(reason) {
-  // Clear any existing timer first
-  clearInactivityTimer();
+  // Don't create duplicate timers
+  if (inactivityTimeout) return;
 
   console.log(`Starting inactivity timer. Reason: ${reason}`);
 
-  // Create a new timer
   inactivityTimeout = setTimeout(async () => {
-    // Stop the recognizer
+    console.log("Inactivity timeout reached. Stopping recorder.");
     await stopRecognizerTab();
-
-    // Reset the state
-    inactivityTimeout = null;
+    await setStorage("transcriptionState", false);
   }, INACTIVITY_TIMEOUT_MS);
 }
 
@@ -450,17 +432,77 @@ function clearInactivityTimer() {
   }
 }
 
-// Update resetTranscriptionState to clear inactivity timers
+// When the browser action is clicked, open popup.html.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.action.setPopup({ popup: "popup.html" });
+});
+
+// When the extension is reloaded or starts up, validate the transcription state
+chrome.runtime.onStartup.addListener(validateTranscriptionState);
+chrome.runtime.onInstalled.addListener(validateTranscriptionState);
+
+async function validateTranscriptionState() {
+  // Check if we have an options tab stored
+  const optionTabId = await getStorage("optionTabId");
+
+  if (optionTabId) {
+    // Check if the tab actually exists
+    try {
+      const tab = await chrome.tabs.get(optionTabId);
+      // If tab exists but isn't an options page, reset state
+      if (
+        !tab.url.includes(chrome.runtime.id) ||
+        !tab.url.includes("options.html")
+      ) {
+        resetTranscriptionState();
+      }
+    } catch (error) {
+      // Tab doesn't exist anymore, reset state
+      resetTranscriptionState();
+    }
+  } else {
+    // No options tab ID stored, make sure state is reset
+    resetTranscriptionState();
+  }
+}
 
 async function resetTranscriptionState() {
   console.log("Resetting transcription state to false");
 
   // Clear any inactivity timer
-  if (inactivityTimeout) {
-    clearTimeout(inactivityTimeout);
-    inactivityTimeout = null;
+  clearInactivityTimer();
+
+  await setStorage("optionTabId", null);
+  await setStorage("transcriptionState", false);
+
+  // Reset state variables
+  isInactive = false;
+
+  // Clear any waiting for audio states
+  tabsWaitingForAudio.clear();
+  if (chrome.tabs.onUpdated.hasListener(onTabUpdated)) {
+    chrome.tabs.onUpdated.removeListener(onTabUpdated);
   }
 
-  // Rest of your existing resetTranscriptionState code...
-  // ...
+  // Clear any waiting badges
+  chrome.tabs.query({}, (tabs) => {
+    tabs.forEach((tab) => {
+      chrome.action.setBadgeText({ text: "", tabId: tab.id });
+    });
+  });
+
+  // Try to clean up any content script monitoring
+  try {
+    const currentTabId = await getStorage("currentTabId");
+    if (currentTabId) {
+      await chrome.scripting
+        .executeScript({
+          target: { tabId: currentTabId },
+          function: cleanupMonitoring,
+        })
+        .catch(() => {});
+    }
+  } catch (error) {
+    // Ignore errors during cleanup on state reset
+  }
 }
