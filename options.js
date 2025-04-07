@@ -1,5 +1,3 @@
-// merged-options-asr.js
-
 // ------------------
 // Global variables & state
 // ------------------
